@@ -2,7 +2,7 @@
 
 A Blender add-on that gathers the tools for modeling and texturing scanned lacquerware: bring a photogrammetry scan in with its cameras and photos, then model, project and clean up on top of it. Each tool is a module that can be switched on and off.
 
-**Status:** 0.0.1. Scaffold (blender-addon-init) plus the first module, **metashape**, ported from the standalone Metashape Camera Importer script. Smoke-tested in Blender 5.2.2 with a synthetic export; not yet tried on a real scan. See [docs/HANDOFF.md](docs/HANDOFF.md) for where things stand and what comes next.
+**Status:** 0.0.2. Scaffold (blender-addon-init) with the sidebar tab feature, plus the first module, **metashape**, ported from the standalone Metashape Camera Importer script. Smoke-tested in Blender 5.2.2 with a synthetic export; not yet tried on a real scan. See [docs/HANDOFF.md](docs/HANDOFF.md) for where things stand and what comes next.
 
 ## Layout
 
@@ -11,6 +11,7 @@ LivingLacquer/
 ├── addons/LivingLacquer/
 │   ├── __init__.py, properties.py, panels.py, infos.py, assets.py   scaffold (blender-addon-init)
 │   ├── module_manager.py, modules_config.json                       module system
+│   ├── sidebar_tab.py   tab rename / up / down / share (drop-in, do not edit)
 │   └── modules/metashape/
 │       ├── parse.py      Metashape XML -> sensors + camera matrices
 │       ├── photos.py     find photos, undistort through the Brown model
@@ -31,6 +32,10 @@ LivingLacquer/
 python install.py
 ```
 Copies the add-on into Blender 5.2's add-ons folder and reloads it through the Blender MCP (port 9876). Enable **LivingLacquer** once in Preferences > Add-ons. Change `BLENDER_VERSION` in `install.py` for another Blender.
+
+## Sidebar tab
+
+Turn on **Debug** in the Infos panel: **Tab name** renames the add-on's sidebar tab (same name as another add-on = one shared tab), the reset arrow goes back to "LivingLacquer", and up / down move the tab among the add-on tabs. Stored in `<Blender config>/sidebar_tabs.json`, shared by every add-on with `sidebar_tab.py`.
 
 ## Modules
 

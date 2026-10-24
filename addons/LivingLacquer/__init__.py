@@ -1,6 +1,6 @@
 bl_info = {
     "name": "LivingLacquer",
-    "version": (0, 0, 1),
+    "version": (0, 0, 2),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > LivingLacquer  |  File > Import > Agisoft Metashape Cameras (.xml)",
     "category": "3D View",
@@ -20,8 +20,14 @@ def register():
     from . import module_manager
     module_manager.load_all()
 
+    from . import sidebar_tab
+    sidebar_tab.register()          # tab name field, up / down, the saved tab order
+
 
 def unregister():
+    from . import sidebar_tab
+    sidebar_tab.unregister()
+
     from . import module_manager
     module_manager.unload_all()
 

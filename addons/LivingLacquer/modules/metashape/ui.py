@@ -35,7 +35,8 @@ class LIVINGLACQUER_PT_Metashape(bpy.types.Panel):
 
 
 def register():
-    bpy.utils.register_class(LIVINGLACQUER_PT_Metashape)
+    from ... import sidebar_tab
+    sidebar_tab.register_panel(LIVINGLACQUER_PT_Metashape)     # in the tab the user named
 
 
 def unregister():

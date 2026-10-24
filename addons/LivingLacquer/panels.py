@@ -2,6 +2,8 @@ import bpy
 import os
 import json
 
+from . import sidebar_tab
+
 
 def _build_label():
     """Return 'dd/mm/yy HH:MM' from build_info.json, or 'Build' if not built yet."""
@@ -22,13 +24,16 @@ def _build_label():
 
 class LIVINGLACQUER_PT_Infos(bpy.types.Panel):
     """Infos panel - build time, debug, console"""
-    bl_label = "Infos"
+    bl_label = ""               # drawn by draw_header: "Infos" + the add-on name, greyed
     bl_idname = "LIVINGLACQUER_PT_infos"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "LivingLacquer"
     bl_order = 0
     bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        sidebar_tab.draw_header(self.layout, "Infos")
 
     def draw(self, context):
         layout = self.layout
@@ -45,6 +50,8 @@ class LIVINGLACQUER_PT_Infos(bpy.types.Panel):
         row.operator("livinglacquer.clear_console", text="", icon='TRASH')
 
         if props.debug_mode:
+            sidebar_tab.draw(layout)          # Tab name + up / down
+
             # Modules row — hidden unless debug mode is on
             from . import module_manager
             row = layout.row(align=True)
@@ -72,8 +79,8 @@ class LIVINGLACQUER_PT_MainPanel(bpy.types.Panel):
 
 
 def register():
-    bpy.utils.register_class(LIVINGLACQUER_PT_Infos)
-    bpy.utils.register_class(LIVINGLACQUER_PT_MainPanel)
+    for c in (LIVINGLACQUER_PT_Infos, LIVINGLACQUER_PT_MainPanel):
+        sidebar_tab.register_panel(c)     # in the tab the user named
 
 
 def unregister():

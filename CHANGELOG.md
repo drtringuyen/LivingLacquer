@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.2 (2026-10-24)
+
+- **Sidebar tab**: drop-in `sidebar_tab.py` (same file as MeshBuildTimelapse / MultiCamProject). With Debug on, the Infos panel shows **Tab name** with reset and up / down; the Infos header shows "Infos (LivingLacquer)". Name and order live in the shared `<Blender config>/sidebar_tabs.json`.
+- Infos, main panel and the Metashape sub-panel register through `sidebar_tab.register_panel`, so a module turned back on lands in the named tab.
+- Checked in Blender 5.2.2: rename moves all panels and keeps the sidebar on the tab, up / down reorders, reset returns to "LivingLacquer", toggling Metashape off / on keeps the renamed tab, and the tab is shared with MeshBuildTimelapse and MultiCamProject (both named "LivingLacquer" in sidebar_tabs.json).
+
 ## 0.0.1 (2026-10-24)
 
 - Scaffold from blender-addon-init: Infos panel (Build / Reload / Debug / Console / Clear), main panel, global properties, `assets.py`, module system.
