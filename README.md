@@ -2,7 +2,7 @@
 
 A Blender add-on that gathers the tools for modeling and texturing scanned lacquerware: bring a photogrammetry scan in with its cameras and photos, then model, project and clean up on top of it. Each tool is a module that can be switched on and off.
 
-**Status:** 0.0.1. Scaffold (blender-addon-init) plus the first module, **metashape**, ported from the standalone Metashape Camera Importer script. Not yet tested live in this repo. See [docs/HANDOFF.md](docs/HANDOFF.md) for where things stand and what comes next.
+**Status:** 0.0.1. Scaffold (blender-addon-init) plus the first module, **metashape**, ported from the standalone Metashape Camera Importer script. Smoke-tested in Blender 5.2.2 with a synthetic export; not yet tried on a real scan. See [docs/HANDOFF.md](docs/HANDOFF.md) for where things stand and what comes next.
 
 ## Layout
 

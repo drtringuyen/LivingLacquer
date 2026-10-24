@@ -3,7 +3,8 @@
 ## 0. Where we are
 
 - 0.0.1: scaffold + **metashape** module (ported from `Metashape Camera Importer` 0.1.0, behavior unchanged).
-- Not yet live-tested in this repo. Next: `python install.py`, enable the add-on, run the checklist below on a real Metashape export.
+- Smoke-tested in Blender 5.2.2 on 2026-10-24 with a synthetic 2-camera export: add-on enables, all panels / operators / File > Import entry register, import + undistort + Look Through / Step / Apply to All work, module toggle off/on works, unaligned cameras are skipped.
+- Next: run the checklist below on a real Metashape export of a lacquer piece (alignment with the OBJ is the key unknown).
 - No GitHub remote yet.
 
 ## 1. Purpose
