@@ -13,7 +13,8 @@ from . import agisoft
 
 TEXT = "LivingLacquer Agisoft Guide"
 LABELS = {"source": "Photo folder", "psx": "Project .psx", "xml": "Cameras .xml", "model": "Model .abc",
-          "texture": "Texture .jpg"}
+          "texture": "Texture .jpg", "masks": "Mask template"}
+SINGLE = ("source", "masks")    # one copy button (a folder / a template), not Folder + Name
 _patched = []           # Blender's text editor panels that hide themselves in the guide window
 
 
@@ -55,11 +56,14 @@ def guide_text(root, engine, show_paths=False, show_all=False):
         out.append("")
     else:
         hidden = len({l[2] for l in lines_ if l[3] and l[2] != "path"})      # steps, not lines
-        out.append("Still to do (each path has a copy button on the right; click it, then Ctrl+V in Metashape):")
+        out.append("Still to do. In Metashape's file dialogs: click Folder and paste it into the address bar (top),")
+        out.append("then click Name and paste it into File name. Buttons are in the sidebar on the right.")
         out.append("")
     for text, key, what, done in todo:
         mark = "[done] " if done else ""
-        out.append(mark + text + (f"   [copy: {LABELS[key]}]" if key and not show_paths and not done else ""))
+        hint = "" if not key else (f"   [copy: {LABELS[key]}]" if key in SINGLE
+                                   else f"   [copy: {LABELS[key]} › Folder, then Name]")
+        out.append(mark + text + (hint if key and not show_paths and not done else ""))
         if key and show_paths and not done:
             out.append(f"      {t[key]}")
     if not show_all and any(not l[3] for l in lines_):
@@ -81,6 +85,59 @@ def write_text(context):
         txt.write(body)
     txt.use_fake_user = False
     return txt
+
+
+WINDOW_TITLE = "Text Editor"   # what Windows calls Blender's small text editor window
+
+
+def set_topmost(on=True):
+    """Windows only: keep the guide window above other programs (Metashape) or let it go back. Blender has
+    no API for it; this asks Windows directly (SetWindowPos HWND_TOPMOST) for this Blender's windows
+    titled "Text Editor". Returns how many windows it changed."""
+    import sys
+    if sys.platform != "win32":
+        return 0
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    pid, found = os.getpid(), []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def each(hwnd, _lparam):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and user32.IsWindowVisible(hwnd):
+            n = user32.GetWindowTextLengthW(hwnd)
+            buf = ctypes.create_unicode_buffer(n + 1)
+            user32.GetWindowTextW(hwnd, buf, n + 1)
+            if buf.value.strip() == WINDOW_TITLE:
+                found.append(hwnd)
+        return True
+
+    user32.EnumWindows(each, 0)
+    # declared types: a bare Python int is passed as a 32-bit C int and cuts the 64-bit window handle
+    user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                    ctypes.c_int, ctypes.c_uint]
+    user32.SetWindowPos.restype = wintypes.BOOL
+    after = wintypes.HWND(-1 if on else -2)         # HWND_TOPMOST / HWND_NOTOPMOST
+    done = 0
+    for hwnd in found:          # keep size and place, do not steal focus
+        done += bool(user32.SetWindowPos(wintypes.HWND(hwnd), after, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010))
+    return done
+
+
+_pin = {"tries": 0}
+
+
+def _pin_later():
+    """The new window gets its Windows title a moment after it opens: try for up to 5 s."""
+    if not bpy.context.scene.livinglacquer_props.pipe_guide_ontop:
+        return None
+    if set_topmost(True) or _pin["tries"] >= 20:
+        _pin["tries"] = 0
+        return None
+    _pin["tries"] += 1
+    return 0.25
 
 
 def _guide_open():
@@ -130,6 +187,7 @@ def open_window(context):
     space.font_size = 13
     space.show_region_ui = True
     space.top = 0
+    bpy.app.timers.register(_pin_later, first_interval=0.5)
     if not bpy.app.timers.is_registered(_tick):
         bpy.app.timers.register(_tick, first_interval=3.0)
     return True
@@ -175,16 +233,29 @@ class LIVINGLACQUER_PT_AgisoftGuide(bpy.types.Panel):
         if not todo:
             col.label(text="Nothing left to copy", icon="CHECKMARK")
         for text, key in todo:
+            number = text.split(".")[0]                 # the guide step it belongs to
+            if key in SINGLE:                           # a folder or a template: one button
+                row = col.row(align=True)
+                row.scale_y = 1.4
+                op = row.operator("livinglacquer.pipe_copy_path", text=f"{number}. {LABELS[key]}", icon="COPYDOWN",
+                                  depress=STATUS["copied"] == f"{key}:FULL")
+                op.key, op.part = key, "FULL"
+                continue
+            col.label(text=f"{number}. {LABELS[key]}")  # a file: its folder and its name apart
             row = col.row(align=True)
             row.scale_y = 1.4
-            number = text.split(".")[0]                 # the guide step it belongs to
-            row.operator("livinglacquer.pipe_copy_path", text=f"{number}. {LABELS[key]}", icon="COPYDOWN",
-                         depress=STATUS["copied"] == key).key = key
+            for part, label in (("FOLDER", "Folder"), ("NAME", "Name")):
+                op = row.operator("livinglacquer.pipe_copy_path", text=label,
+                                  depress=STATUS["copied"] == f"{key}:{part}")
+                op.key, op.part = key, part
+            col.separator(factor=0.5)
         col.separator()
         col.prop(props, "pipe_guide_all", text="Show all steps", toggle=True,
                  icon="HIDE_OFF" if props.pipe_guide_all else "HIDE_ON")
         col.prop(props, "pipe_guide_paths", text="Show paths", toggle=True,
                  icon="HIDE_OFF" if props.pipe_guide_paths else "HIDE_ON")
+        col.prop(props, "pipe_guide_ontop", text="Keep on top", toggle=True, icon="PINNED" if props.pipe_guide_ontop
+                 else "UNPINNED")
 
 
 def _hide_in_guide(cls):

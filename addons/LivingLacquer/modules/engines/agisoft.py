@@ -14,6 +14,8 @@ GUIDE = {
     "AGISOFT": [
         _PATH,
         ("1. Workflow › Add Folder: paste the photo folder", "source", "folder"),
+        ("1b. File › Import › Import Masks…: Method From File, Operation Replacement, Filename template: paste "
+         "the mask template, Apply to All cameras", "masks", "masks"),
         ("2. File › Save As: paste the project path", "psx", "save"),
         ("3. Workflow › Align Photos (Accuracy High)", None, "align"),
         ("   check: all cameras aligned, only one component", None, "align"),
@@ -25,6 +27,8 @@ GUIDE = {
     "HYBRID": [
         _PATH,
         ("1. Workflow › Add Folder: paste the photo folder", "source", "folder"),
+        ("1b. File › Import › Import Masks…: Method From File, Operation Replacement, Filename template: paste "
+         "the mask template, Apply to All cameras", "masks", "masks"),
         ("2. File › Save As: paste the project path", "psx", "save"),
         ("3. Workflow › Align Photos (High), check the alignment", None, "align"),
         ("4. File › Export › Export Cameras (Agisoft XML):", "xml", "xml"),
@@ -41,7 +45,7 @@ def project_state(root):
     import zipfile
     psx = targets(root)["psx"]
     st = {"psx": os.path.exists(psx), "open": False, "photos": 0, "missing": 0, "looks_in": "", "aligned": 0,
-          "model": False}
+          "model": False, "masks": False}
     files = os.path.splitext(psx)[0] + ".files"
     if not (st["psx"] and os.path.isdir(files)):
         return st
@@ -62,7 +66,8 @@ def project_state(root):
         base = os.path.dirname(frame)
         resolved = [os.path.normpath(os.path.join(base, p)) if not os.path.isabs(p) else p for p in photos]
         missing = [p for p in resolved if not os.path.exists(p)]
-        parsed.update(photos=len(photos), missing=len(missing), model="<model" in doc,
+        parsed.update(photos=len(photos), missing=len(missing), model="<model" in doc, masks="<mask" in doc
+                      or os.path.isdir(os.path.join(base, "masks")),
                       looks_in=os.path.dirname(missing[0]) if missing else "")
     except (OSError, KeyError, zipfile.BadZipFile):
         pass
@@ -81,17 +86,41 @@ def guide_status(root, engine):
     """[(text, key, what, done)] for the guide lines, from the project files and the exports."""
     t = targets(root)
     p = project_state(root)
-    exists = lambda k: os.path.exists(t[k]) or (k == "model" and any(
-        os.path.exists(os.path.splitext(t[k])[0] + e) for e in paths.MODEL_EXTS))
+    # files another engine published (Open Source / Hybrid) sit under the same names: they only count as
+    # Agisoft exports when written after that publish
+    from datetime import datetime
+    from ..project import marker
+    pub = (marker.read(root) or {}).get("published") or {}
+    since = 0.0
+    if pub.get("engine") not in (None, "", "AGISOFT", engine):
+        try:
+            since = datetime.fromisoformat(pub.get("date", "")).timestamp() + 5
+        except ValueError:
+            since = 0.0
+
+    def exported(k):
+        cands = [t[k]] + ([os.path.splitext(t[k])[0] + e for e in paths.MODEL_EXTS] if k == "model" else [])
+        return any(os.path.exists(c) and os.path.getmtime(c) > since for c in cands)
+
     done = {
         "path": not p["missing"],                       # nothing to fix: the line stays hidden
         "folder": p["photos"] > 0,
         "save": p["psx"],
-        "align": p["aligned"] > 0 or exists("xml"),
-        "build": p["model"] or (exists("model") and exists("texture")),
-        "xml": exists("xml"), "model": exists("model"), "texture": exists("texture"),
+        "align": p["aligned"] > 0,                      # from the Metashape project itself
+        "build": p["model"],
+        "masks": p["masks"],
+        "xml": exported("xml"), "model": exported("model"), "texture": exported("texture"),
     }
-    return [(text, key, what, done[what]) for text, key, what in GUIDE[engine]], p
+    has_masks = bool(os.path.isdir(os.path.dirname(t["masks"])) and any(
+        f.endswith("_mask.png") for f in os.listdir(os.path.dirname(t["masks"]))))
+    out = []
+    for text, key, what in GUIDE[engine]:
+        if what == "masks" and not has_masks:
+            continue                                    # no masks made: no import line
+        if what == "align" and has_masks and text.startswith("3."):
+            text += " - Apply masks to: Key points"
+        out.append((text, key, what, done[what]))
+    return out, p
 
 
 def targets(root):
@@ -105,6 +134,8 @@ def targets(root):
         "xml": os.path.join(found["cam"] or os.path.join(scan, paths.CAM), f"CAM_{obj}.xml"),
         "model": os.path.join(found["geometry"] or os.path.join(scan, paths.GEOMETRY), f"OBJ_{obj}.abc"),
         "texture": os.path.join(found["geometry"] or os.path.join(scan, paths.GEOMETRY), f"OBJ_{obj}.jpg"),
+        # Metashape's Import Masks "Filename template": folder + {filename} (the photo name without extension)
+        "masks": os.path.join(found["masks"] or os.path.join(scan, paths.MASKS), "{filename}_mask.png"),
     }
 
 

@@ -27,6 +27,14 @@ def _pivot_update(self, context):
     view.apply(context.scene)
 
 
+def _guide_ontop(props):
+    try:
+        from .modules.engines import guide
+    except ImportError:
+        return
+    guide.set_topmost(props.pipe_guide_ontop)
+
+
 def _guide_update(context):
     try:
         from .modules.engines import guide
@@ -54,7 +62,7 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
     addon_version: StringProperty(
         name="Version",
         description="Current addon version",
-        default="0.3.8"
+        default="0.4.2"
     )
 
     # metashape: collection the sidebar steps through, and the background photo look
@@ -94,10 +102,29 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
     pipe_guide_all: BoolProperty(
         name="Show All Steps", default=False, update=lambda self, context: _guide_update(context),
         description="Also list the Agisoft steps already done (marked [done]); off shows only what is left")
+    pipe_guide_ontop: BoolProperty(
+        name="Keep on Top", default=True, update=lambda self, context: _guide_ontop(self),
+        description="Keep the Agisoft guide window above Metashape (Windows); off lets it go behind again")
     pipe_guide_paths: BoolProperty(
         name="Show Paths", default=False, update=lambda self, context: _guide_update(context),
         description="Write the full folder / file paths into the Agisoft guide text (the copy buttons work "
                     "either way)")
+    pipe_mask_method: EnumProperty(
+        name="Mask Method",
+        items=[("AI", "AI cut-out", "Find the object with an AI model (U^2-Net, 176 MB download once); works on any "
+                                    "background"),
+               ("COLOR", "Colour key", "Ignore everything close to the background colour (no download); needs a "
+                                       "plain background")],
+        default="AI")
+    pipe_colmap_masks: BoolProperty(
+        name="Use masks: object only in the mesh", default=False,
+        description="Leave the masked background (table, floor) out of the mesh. The photos still align on the "
+                    "whole picture, so the background keeps helping to place the cameras")
+    pipe_mask_grow: IntProperty(name="Grow Edge", default=12, min=0, max=80,
+                                description="Widen the kept area by this many pixels, so the object's edge is never cut")
+    pipe_mask_tolerance: FloatProperty(name="Colour Tolerance", default=0.12, min=0.02, max=0.5,
+                                       description="How far from the background colour a pixel may be and still be "
+                                                   "ignored (Colour key)")
     pipe_out_format: EnumProperty(
         name="Format", description="File format of converted and undistorted photos",
         items=[("JPG", "JPG", ""), ("PNG", "PNG", ""), ("TIF", "TIFF", "")],

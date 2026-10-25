@@ -1,4 +1,6 @@
 """Step 3 - Reconstruct, first part: the engine (changes with the engine switch)."""
+import os
+
 from ..project import state
 from ..project.ui import big_row
 from . import agisoft, operators, tools
@@ -14,6 +16,9 @@ def draw_step(number, layout, context):
         row = big_row(layout)
         row.operator("livinglacquer.pipe_reconstruct", text="3. Reconstruct: COLMAP + OpenMVS", icon="PLAY").action = "START"
         row.prop(props, "pipe_preset", text="")
+        root = state.get()["root"]
+        if root and os.path.isdir(os.path.join(root, "zz.Scan", "zz.Masks")):
+            layout.prop(props, "pipe_colmap_masks")
     else:
         row = big_row(layout)
         row.operator("livinglacquer.pipe_reconstruct", text="3. Reconstruct: Open Metashape", icon="WINDOW").action = "START"

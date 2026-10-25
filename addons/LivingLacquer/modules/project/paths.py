@@ -11,6 +11,7 @@ CAM = "01.CAM_Photos"
 GEOMETRY = "02.Geometry"
 AGISOFT = "zz.Agisoft"
 OPEN = "zz.COLMAP_OMVS"
+MASKS = "zz.Masks"         # one <photo stem>_mask.png per photo: white = subject, black = ignored
 
 TREE = [
     SCAN,
@@ -19,6 +20,7 @@ TREE = [
     f"{SCAN}/{CAM}",
     f"{SCAN}/{GEOMETRY}",
     f"{SCAN}/{AGISOFT}",
+    f"{SCAN}/{MASKS}",
     f"{SCAN}/{OPEN}/colmap",
     f"{SCAN}/{OPEN}/openmvs",
     f"{SCAN}/{OPEN}/logs",
@@ -137,7 +139,7 @@ def locate(root):
         out["renames"].append((scan, SCAN))
     out["scan"] = scan
     for key, canon in (("source", SOURCE), ("cam", CAM), ("geometry", GEOMETRY),
-                       ("agisoft", AGISOFT), ("open", OPEN)):
+                       ("agisoft", AGISOFT), ("open", OPEN), ("masks", MASKS)):
         p, name = find_child(scan, canon) if scan else (None, None)
         if p and name != canon:
             out["renames"].append((p, canon))

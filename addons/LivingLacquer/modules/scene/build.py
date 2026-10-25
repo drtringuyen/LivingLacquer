@@ -74,9 +74,19 @@ def fingerprint(cal):
 
 
 def published_undistorted(root):
-    """True when the published photos in 01.CAM_Photos are already undistorted (COLMAP engines)."""
-    m = marker.read(root) or {}
-    return bool(m.get("published", {}).get("undistorted"))
+    """True when the published photos in 01.CAM_Photos are already undistorted (COLMAP engines) - only as
+    long as the camera XML is still the one that engine published: an Agisoft export written over it
+    later brings distorted photos again, which step 4 must undistort."""
+    from datetime import datetime
+    pub = (marker.read(root) or {}).get("published") or {}
+    if not pub.get("undistorted"):
+        return False
+    xml = paths.locate(root)["xml"]
+    try:
+        when = datetime.fromisoformat(pub.get("date", "")).timestamp()
+    except ValueError:
+        return True
+    return not (xml and os.path.getmtime(xml) > when + 5)
 
 
 def camera_jobs(root, found):

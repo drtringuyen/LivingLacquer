@@ -16,18 +16,20 @@ from ..project import jobs, paths
 from . import colmap_xml, tools
 
 # densify resolution level, refine on/off, texture resolution level
-CRASH = 3221225477          # 0xC0000005, access violation
 PRESETS = {"FAST": (2, False, 2), "NORMAL": (1, True, 1), "HIGH": (0, True, 0)}
 MAX_EXHAUSTIVE = 300
 
 
-def _openmvs_steps(work, preset, first_input):
+def _openmvs_steps(work, preset, first_input, mask_dir=None):
+    """mask_dir: <image stem>.mask.png files matching the undistorted photos, black = left out of the dense
+    point cloud (and so of the mesh)."""
     dens, refine, tex = PRESETS[preset]
     threads = max(1, (os.cpu_count() or 4) - 2)     # two cores left for Blender
     mvs = lambda t, *a: [tools.openmvs(t), "-w", work, "--max-threads", threads] + list(a)
+    masked = ["--mask-path", mask_dir, "--ignore-mask-label", 0] if mask_dir else []
     steps = [
         jobs.Step("Dense point cloud", mvs("DensifyPointCloud", "-i", first_input, "-o", "scene_dense.mvs",
-                                           "--resolution-level", dens), weight=30),
+                                           "--resolution-level", dens, *masked), weight=30),
         jobs.Step("Mesh", mvs("ReconstructMesh", "-i", "scene_dense.mvs", "-o", "scene_mesh.mvs"), weight=8),
     ]
     mesh = "scene_mesh.ply"
@@ -35,17 +37,14 @@ def _openmvs_steps(work, preset, first_input):
         steps.append(jobs.Step("Refine mesh", mvs("RefineMesh", "-i", "scene_dense.mvs", "-m", mesh,
                                                   "-o", "scene_refine.mvs", "--resolution-level", 2), weight=15))
         mesh = "scene_refine.ply"
-    texture = ["-i", "scene_dense.mvs", "-m", mesh, "-o", "scene_texture.mvs", "--export-type", "obj",
-               "--resolution-level", tex]
-    # TextureMesh 2.4 can crash in its seam levelling (access violation, seen on a 45-photo iPhone scan):
-    # let that run fail softly and texture again without seam levelling
-    no_texture = lambda job: not os.path.exists(os.path.join(work, "scene_texture.obj"))
+    # from the scene without the dense masks: TextureMesh paints masked pixels black. Seam levelling off:
+    # in TextureMesh 2.4 it paints black blobs over the texture (Teacup: 13% of the atlas) or crashes
+    texture = ["-i", first_input, "-m", mesh, "-o", "scene_texture.mvs", "--export-type", "obj",
+               "--resolution-level", tex, "--global-seam-leveling", 0, "--local-seam-leveling", 0]
     steps += [
         jobs.Step("Clean old texture", lambda job: [os.remove(f) for f in glob.glob(
             os.path.join(work, "scene_texture*"))], weight=0.1),
-        jobs.Step("Texture", mvs("TextureMesh", *texture), weight=10, ok_codes=(0, CRASH)),
-        jobs.Step("Texture (without seam levelling)", mvs("TextureMesh", *texture, "--global-seam-leveling", 0,
-                                                          "--local-seam-leveling", 0), weight=3, when=no_texture),
+        jobs.Step("Texture", mvs("TextureMesh", *texture), weight=10),
     ]
     return steps
 
@@ -81,7 +80,7 @@ def _photos(root):
     return {stem: pick_jpg(v) for stem, v in src.items()}
 
 
-def opensource_job(root, preset="NORMAL", on_done=None):
+def opensource_job(root, preset="NORMAL", on_done=None, with_masks=False):
     work = tools.work_dir(root, "OPENSOURCE")
     obj = paths.object_name(root)
     colmap = tools.colmap_exe()
@@ -94,8 +93,28 @@ def opensource_job(root, preset="NORMAL", on_done=None):
     if len(photos) < 3:
         raise ValueError("Fewer than 3 photos in zz.Source_Photos (run Convert & Sort first)")
 
+    from ..ingest import masks as masks_mod
+    # The masks only shape the mesh: the photos align on the whole picture (masked, a glossy plain object
+    # aligned 13 of 45 photos instead of 33). They go through COLMAP's undistorter like the photos, so
+    # they match the undistorted photos OpenMVS reads, then DensifyPointCloud leaves the black part out.
+    mask_root = os.path.join(work, "masks")             # same folders and names as images/, mask pixels
+    mask_dense = os.path.join(work, "dense_masks")
+    mask_mvs = os.path.join(work, "mvs_masks")          # <stem>.mask.png for OpenMVS
+    use_masks = with_masks and any(os.path.exists(masks_mod.mask_for(root, p)) for p in photos.values())
+
     def prepare(job):
-        """Local copies grouped by photo size: one COLMAP camera per lens (single_camera_per_folder)."""
+        """Local copies grouped by photo size: one COLMAP camera per lens (single_camera_per_folder), and the
+        masks (zz.Masks) as images of the same names."""
+        for d in (mask_root, mask_dense, mask_mvs):
+            shutil.rmtree(d, ignore_errors=True)
+        if use_masks:
+            from ..ingest import deps
+            deps.ensure_path()
+            from PIL import Image
+        # OpenMVS reuses depthNNNN.dmap files by image number: left over from a run with other cameras they
+        # crash DensifyPointCloud (access violation, Teacup re-run). Start every run clean.
+        for f in glob.glob(os.path.join(work, "depth*.dmap")) + glob.glob(os.path.join(work, "scene*")):
+            os.remove(f)
         for d in (sparse, dense):
             shutil.rmtree(d, ignore_errors=True)
         if os.path.exists(db):
@@ -112,6 +131,16 @@ def opensource_job(root, preset="NORMAL", on_done=None):
             yield n / len(photos), os.path.basename(src)
             if not (os.path.exists(dst) and os.path.getsize(dst) == os.path.getsize(src)):
                 shutil.copy2(src, dst)
+            m = masks_mod.mask_for(root, src)
+            if use_masks:
+                mdst = os.path.join(mask_root, os.path.basename(group), os.path.basename(src))
+                os.makedirs(os.path.dirname(mdst), exist_ok=True)
+                if os.path.exists(m):
+                    Image.open(m).convert("L").save(mdst, quality=95)
+                else:                                   # no mask: keep the whole photo
+                    Image.new("L", size, 255).save(mdst, quality=95)
+        if use_masks:
+            job.log(f"Masks from {paths.MASKS} shape the mesh")
         for d, _dirs, files in os.walk(images):          # photos removed since the last run
             for f in files:
                 if os.path.normcase(os.path.join(d, f)) not in wanted:
@@ -144,6 +173,16 @@ def opensource_job(root, preset="NORMAL", on_done=None):
         job.log(f"{n} cameras written to {os.path.basename(xml)}")
         job.data["xml"] = xml
 
+    def mvs_masks(job):
+        """Undistorted masks -> <stem>.mask.png, pure black / white (the JPEG edges are soft)."""
+        from PIL import Image
+        os.makedirs(mask_mvs, exist_ok=True)
+        files = [(d, f) for d, _dirs, fs in os.walk(os.path.join(mask_dense, "images")) for f in fs]
+        for n, (d, f) in enumerate(files):
+            yield n / max(len(files), 1), f
+            m = Image.open(os.path.join(d, f)).convert("L").point(lambda v: 255 if v > 127 else 0)
+            m.save(os.path.join(mask_mvs, os.path.splitext(f)[0] + ".mask.png"))
+
     def collect(job):
         flat = os.path.join(work, "undistorted")              # one folder, photo names = camera labels
         os.makedirs(flat, exist_ok=True)
@@ -156,12 +195,20 @@ def opensource_job(root, preset="NORMAL", on_done=None):
     c = lambda *a: [colmap] + list(a)
     steps = [
         jobs.Step("Copy photos", prepare, weight=3),
+        # more features, guided matching and looser mapper thresholds: with the defaults only the 13 top-down
+        # Teacup photos aligned (plain lid, blurred background on the side views); with these all 30 did
         jobs.Step("Features", c("feature_extractor", "--database_path", db, "--image_path", images,
                                 "--ImageReader.camera_model", "OPENCV",
-                                "--ImageReader.single_camera_per_folder", "1"), env=env, weight=8),
-        jobs.Step("Matching", c("exhaustive_matcher", "--database_path", db), env=env, weight=12),
+                                "--ImageReader.single_camera_per_folder", "1",
+                                "--SiftExtraction.max_num_features", "16384",
+                                "--SiftExtraction.peak_threshold", "0.003"), env=env, weight=8),
+        jobs.Step("Matching", c("exhaustive_matcher", "--database_path", db,
+                                "--FeatureMatching.guided_matching", "1"), env=env, weight=12),
         jobs.Step("Align cameras", c("mapper", "--database_path", db, "--image_path", images,
-                                     "--output_path", sparse), env=env, weight=15),
+                                     "--output_path", sparse, "--Mapper.init_min_num_inliers", "50",
+                                     "--Mapper.abs_pose_min_num_inliers", "15",
+                                     "--Mapper.abs_pose_min_inlier_ratio", "0.15",
+                                     "--Mapper.min_num_matches", "10"), env=env, weight=15),
         jobs.Step("Pick model", pick_model, weight=0.1),
         jobs.Step("Level the model", c("model_orientation_aligner", "--image_path", images,
                                        "--input_path", "{model}", "--output_path",
@@ -169,6 +216,10 @@ def opensource_job(root, preset="NORMAL", on_done=None):
         jobs.Step("Choose levelled model", aligned, weight=0.1),
         jobs.Step("Undistort", c("image_undistorter", "--image_path", images, "--input_path", "{model}",
                                  "--output_path", dense, "--output_type", "COLMAP"), env=env, weight=5),
+        jobs.Step("Undistort masks", c("image_undistorter", "--image_path", mask_root, "--input_path", "{model}",
+                                       "--output_path", mask_dense, "--output_type", "COLMAP"), env=env, weight=2,
+                  when=lambda job: use_masks),
+        jobs.Step("Masks for OpenMVS", mvs_masks, weight=1, when=lambda job: use_masks),
         jobs.Step("Cameras to text", c("model_converter", "--input_path", os.path.join(dense, "sparse"),
                                        "--output_path", os.path.join(work, "sparse_txt"), "--output_type", "TXT"),
                   env=env, weight=0.5),
@@ -176,7 +227,8 @@ def opensource_job(root, preset="NORMAL", on_done=None):
         jobs.Step("Import into OpenMVS", [tools.openmvs("InterfaceCOLMAP"), "-w", work, "-i", dense,
                                           "-o", "scene.mvs", "--image-folder", os.path.join(dense, "images")],
                   weight=2),
-    ] + _openmvs_steps(work, preset, "scene.mvs") + [jobs.Step("Collect result", collect, weight=1)]
+    ] + _openmvs_steps(work, preset, "scene.mvs", mask_mvs if use_masks else None) + [
+        jobs.Step("Collect result", collect, weight=1)]
     return jobs.Job("Open Source", steps, on_done=on_done,
                     log_path=os.path.join(root, paths.SCAN, paths.OPEN, "logs", "opensource.log"))
 

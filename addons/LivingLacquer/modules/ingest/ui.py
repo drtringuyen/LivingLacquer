@@ -2,13 +2,15 @@
 import bpy
 
 from ..project.ui import big_row
-from . import deps, operators, receiver
+from . import deps, masks, operators, receiver
 
 
 def draw_step(number, layout, context):
     _draw_receive(layout)
     layout.separator()
     _draw_convert(layout, context)
+    layout.separator()
+    _draw_masks(layout, context)
 
 
 def _draw_receive(layout):
@@ -43,6 +45,21 @@ def _draw_receive(layout):
         layout.label(text="Watching zz.Source_Photos: drop photos there (USB / Drive)", icon="HIDE_OFF")
     else:
         layout.label(text="iPhone on the same Wi-Fi: Start, scan the QR code")
+
+
+def _draw_masks(layout, context):
+    """Optional: masks so only the object counts (flipped / moved between photo sets)."""
+    props = context.scene.livinglacquer_props
+    row = big_row(layout)
+    row.operator("livinglacquer.pipe_make_masks", text="2. Make Masks", icon="MOD_MASK")
+    row.prop(props, "pipe_mask_method", text="")
+    row.operator("livinglacquer.pipe_check_masks", text="", icon="HIDE_OFF")
+    if props.pipe_mask_method == "AI" and deps.missing(["ort"]):
+        layout.operator("livinglacquer.pipe_install_deps", text="Install AI masking (onnxruntime)",
+                        icon="IMPORT").packages = "ort"
+    elif props.pipe_mask_method == "COLOR":
+        layout.prop(props, "pipe_mask_tolerance", slider=True)
+    layout.label(text=masks.STATUS["text"] or "Optional: only if the object moved between photo sets")
 
 
 def _draw_convert(layout, context):

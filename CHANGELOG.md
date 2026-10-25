@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.3 (2026-10-26)
+
+- **Open Source aligns far more photos:** more features, guided matching and looser alignment thresholds. Teacup upright set: 30 of 30 photos instead of 13 (the side views of a plain lid had too few features with the defaults).
+- **"Use masks: object only in the mesh":** the masks no longer touch the alignment (the background still helps to place the cameras). They are undistorted like the photos and keep the table / floor out of the dense point cloud and so out of the mesh.
+- **Fix: black blobs in the texture.** TextureMesh's seam levelling painted black patches over the texture (or crashed); it is now off. Texturing also reads the photos without the masks.
+- Tested on a copy of the Teacup: 30 cameras, only the cup in the mesh, clean texture, 5 minutes.
+
+## 0.4.2 (2026-10-26)
+
+- **Fix: a second Open Source run crashed in the dense point cloud** (access violation). OpenMVS reuses the depth maps left in the work folder by image number; from a run with other cameras they belong to other photos. Every Open Source run now starts without old depth maps / scene files (Hybrid already did). Checked: the same DensifyPointCloud call crashed with the old files and finished (94,242 points, 41 s) without them.
+
+## 0.4.1 (2026-10-26)
+
+- **Make Masks (step 2):** one black-and-white mask per photo in `zz.Scan\zz.Masks` (white = the object, black = ignored), for objects moved or flipped between photo sets. **AI cut-out** (U²-Net model, 176 MB downloaded once, runs offline with onnxruntime) or **Colour key** (no download, plain backgrounds). The photos are never changed. About 1 s per photo, in the background with a progress bar.
+- **Check Masks:** a sheet of photos with the ignored part tinted red, in its own window.
+- **Agisoft guide:** "1b. Import Masks" with a copy button for the file-name template, and "Apply masks to: Key points" on Align, shown when masks exist.
+- **Open Source engine:** "Use masks" (off by default) passes them to COLMAP. Tested: on the glossy Teacup, masked COLMAP aligned only 13 of 45 photos (the top-down set) instead of 33 - a plain glossy object needs its background to align, so masks are opt-in there.
+- ⚙ Advanced: Mask edge (how many pixels the kept area is widened).
+- Checked on a copy of the 45 Teacup photos: AI masks keep only the cup in every view (upside down, side, top), 52 s for 45 photos.
+
+## 0.4.0 (2026-10-26)
+
+- **Folder + Name copy buttons:** every Agisoft step that opens a file dialog (Save As, the 3 exports) has two buttons: Folder (paste into the dialog's address bar) and Name (paste into File name); Metashape's dialogs did not take a whole path. The last one copied stays lit; the guide text says which to use.
+- **Guide window stays on top** of Metashape (Windows), with a "Keep on top" switch in its sidebar.
+- Checked in a separate Blender window: the guide window is marked topmost (the main window is not), unpinning works, Folder / Name copy the right parts; live on the Teacup: pinned, watcher running.
+
+## 0.3.9 (2026-10-26)
+
+- **Switching engines (Open Source -> Agisoft) works:** the Agisoft guide no longer takes another engine's published files for Agisoft exports (they count only when written after that engine's publish), and Align / Build Model come from the Metashape project itself. On the Teacup it now shows Align, Build Model / Texture and the 3 exports instead of "Nothing left to do".
+- **Fix:** after a COLMAP publish, a new Agisoft camera XML was treated as already undistorted; the "already undistorted" mark now only holds while the XML is still the engine's own.
+
 ## 0.3.8 (2026-10-26)
 
 - **Blender stays responsive while the engines run:** COLMAP and OpenMVS now run at below-normal priority and OpenMVS leaves two cores free; before, Windows marked Blender "not responding" during the dense cloud / mesh stages (the job itself kept running).

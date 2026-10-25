@@ -111,6 +111,7 @@ class LIVINGLACQUER_PT_Pipeline(bpy.types.Panel):
             row.prop(props, "pipe_quality")
         row = box.row(align=True)
         row.prop(props, "pipe_preset", text="Engine quality")
+        row.prop(props, "pipe_mask_grow", text="Mask edge")
         m = st["marker"]
         if st["root"]:
             from .operators import CACHE

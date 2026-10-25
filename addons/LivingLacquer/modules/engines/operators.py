@@ -1,4 +1,5 @@
 """Step 4 - Reconstruct, for the engine chosen at the top of the panel."""
+import os
 import time
 
 import bpy
@@ -62,7 +63,8 @@ class LIVINGLACQUER_OT_PipeReconstruct(bpy.types.Operator):
         try:
             if engine == "OPENSOURCE" and self.action == "START":
                 _set("Open Source running…")
-                _start(pipelines.opensource_job(root, props.pipe_preset, on_done=_published))
+                _start(pipelines.opensource_job(root, props.pipe_preset, on_done=_published,
+                                                with_masks=props.pipe_colmap_masks))
             elif self.action == "OPENMVS":
                 _set("Hybrid: OpenMVS running…")
                 _start(pipelines.hybrid_job(root, props.pipe_preset, on_done=_published))
@@ -84,18 +86,25 @@ class LIVINGLACQUER_OT_PipeReconstruct(bpy.types.Operator):
 
 
 class LIVINGLACQUER_OT_PipeCopyPath(bpy.types.Operator):
-    """Copy this path to the clipboard (paste it in Metashape's file dialog)"""
+    """Copy to the clipboard for Metashape's file dialog: the folder (paste it into the dialog's address
+    bar) or the file name (paste it into File name), or the whole path"""
     bl_idname = "livinglacquer.pipe_copy_path"
     bl_label = "Copy Path"
     key: bpy.props.StringProperty()
+    part: bpy.props.EnumProperty(items=[("FULL", "Path", ""), ("FOLDER", "Folder", ""), ("NAME", "Name", "")],
+                                 default="FULL")
 
     def execute(self, context):
         root = state.get()["root"]
         if not root:
             return {"CANCELLED"}
         p = agisoft.targets(root).get(self.key, "")
+        if self.part == "FOLDER":
+            p = os.path.dirname(p)
+        elif self.part == "NAME":
+            p = os.path.basename(p)
         context.window_manager.clipboard = p
-        STATUS["copied"] = self.key                     # the guide keeps this button lit: where you are
+        STATUS["copied"] = f"{self.key}:{self.part}"   # the guide keeps this button lit: where you are
         for win in context.window_manager.windows:
             for area in win.screen.areas:
                 area.tag_redraw()

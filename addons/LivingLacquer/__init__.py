@@ -1,6 +1,6 @@
 bl_info = {
     "name": "LivingLacquer",
-    "version": (0, 3, 8),
+    "version": (0, 4, 3),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > LivingLacquer  |  File > Import > Agisoft Metashape Cameras (.xml)",
     "category": "3D View",

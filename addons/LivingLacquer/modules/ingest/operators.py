@@ -8,7 +8,7 @@ import time
 import bpy
 
 from ..project import jobs, paths, state
-from . import convert, deps, receiver
+from . import convert, deps, masks, receiver
 
 # panel state, for the open .blend only
 STATUS = {"convert": "", "qr": "", "watch": False, "watch_sig": None, "watch_t": 0.0, "converted_at": 0}
@@ -213,7 +213,51 @@ def _watch_tick():
     return 2.0
 
 
-classes = (LIVINGLACQUER_OT_PipeInstallDeps, LIVINGLACQUER_OT_PipeConvert, LIVINGLACQUER_OT_PipeReceive)
+class LIVINGLACQUER_OT_PipeMakeMasks(bpy.types.Operator):
+    """Make a black-and-white mask for every photo (zz.Scan/zz.Masks): white = the object, black = ignored by
+    Metashape and COLMAP. For objects moved or flipped between photo sets. The photos are not changed"""
+    bl_idname = "livinglacquer.pipe_make_masks"
+    bl_label = "Make Masks"
+
+    @classmethod
+    def poll(cls, context):
+        return bool(state.get()["root"]) and not jobs.busy()
+
+    def execute(self, context):
+        p = context.scene.livinglacquer_props
+        job = masks.make_job(state.get()["root"], p.pipe_mask_method, p.pipe_mask_grow, p.pipe_mask_tolerance)
+        if isinstance(job, str):
+            self.report({"ERROR"}, job)
+            return {"CANCELLED"}
+        jobs.run_or_start(job)
+        return {"FINISHED"}
+
+
+class LIVINGLACQUER_OT_PipeCheckMasks(bpy.types.Operator):
+    """Show a sheet of photos with the masked (ignored) part tinted red, in its own window"""
+    bl_idname = "livinglacquer.pipe_check_masks"
+    bl_label = "Check Masks"
+
+    @classmethod
+    def poll(cls, context):
+        return bool(state.get()["root"]) and not jobs.busy()
+
+    def execute(self, context):
+        def done(job):
+            if job.state == "done" and masks.STATUS["sheet"] and not bpy.app.background:
+                with jobs.ui_override():
+                    masks.show_sheet(bpy.context, masks.STATUS["sheet"])
+        try:
+            deps.ensure_path()
+            jobs.run_or_start(jobs.Job("Check Masks", masks.sheet_job(state.get()["root"]).steps, on_done=done))
+        except RuntimeError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+classes = (LIVINGLACQUER_OT_PipeInstallDeps, LIVINGLACQUER_OT_PipeConvert, LIVINGLACQUER_OT_PipeReceive,
+           LIVINGLACQUER_OT_PipeMakeMasks, LIVINGLACQUER_OT_PipeCheckMasks)
 
 
 def register():
