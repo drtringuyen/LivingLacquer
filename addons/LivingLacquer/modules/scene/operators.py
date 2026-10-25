@@ -74,24 +74,6 @@ def start_scaling():
     return True
 
 
-class LIVINGLACQUER_OT_PipeScale(bpy.types.Operator):
-    """Scale the whole scan (the Transform empty) about the world origin with the mouse; turn on the
-    1.7 m human to judge the size. Click to confirm, right-click / Esc to cancel"""
-    bl_idname = "livinglacquer.pipe_scale"
-    bl_label = "Scale"
-    bl_options = {"REGISTER"}
-
-    @classmethod
-    def poll(cls, context):
-        return bpy.data.objects.get(build.TRANSFORM) is not None and context.mode == "OBJECT"
-
-    def execute(self, context):
-        if not start_scaling():
-            self.report({"ERROR"}, "No 3D Viewport to scale in")
-            return {"CANCELLED"}
-        return {"FINISHED"}
-
-
 class LIVINGLACQUER_OT_PipeAutoLevel(bpy.types.Operator):
     """Stand the scan upright (from the circle of cameras) and put its center on the world origin,
     keeping the scale. Only the Transform empty moves; Ctrl+Z undoes it"""
@@ -195,7 +177,7 @@ class LIVINGLACQUER_OT_PipePackage(_PipeOp, bpy.types.Operator):
 
 
 classes = (LIVINGLACQUER_OT_PipeBuildScene, LIVINGLACQUER_OT_PipeUndistort, LIVINGLACQUER_OT_PipePackage,
-           LIVINGLACQUER_OT_PipeScale, LIVINGLACQUER_OT_PipeAutoLevel)
+           LIVINGLACQUER_OT_PipeAutoLevel)
 
 
 def register():

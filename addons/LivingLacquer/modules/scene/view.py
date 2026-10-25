@@ -1,11 +1,13 @@
 """Viewport helpers for the scan: frame it after Build, and the "pivot at the world origin" toggle."""
+import json
+
 import bpy
 from bpy.app.handlers import persistent
 from mathutils import Vector
 
 from . import human
 
-PIVOT_KEYS = ("ll_prev_pivot", "ll_prev_cursor")
+PIVOT_KEYS = ("ll_prev_pivot", "ll_prev_cursor", "ll_prev_active", "ll_prev_selected", "ll_prev_cams_hidden")
 
 
 def scan_meshes():
@@ -38,22 +40,64 @@ def frame_scan():
     return True
 
 
-# -- pivot at the world origin: Pivot Point = 3D Cursor, cursor kept at (0, 0, 0) while the toggle is on
+# -- "work on the Transform" toggle: Pivot Point = 3D Cursor with the cursor kept at (0, 0, 0), the
+#    Transform empty selected + active with its collection shown and the cameras hidden. Off puts the
+#    pivot, cursor, camera visibility, selection and active object back and hides TRANSFORM again.
+
+def _layer(view_layer, name):
+    """The layer collection of the collection called name in this view layer, or None."""
+    stack = [view_layer.layer_collection]
+    while stack:
+        lc = stack.pop()
+        if lc.collection.name == name:
+            return lc
+        stack.extend(lc.children)
+    return None
+
 
 def apply(scene):
-    """Called when the toggle changes: switch on (remember the user's pivot + cursor) or restore them."""
+    """Called when the toggle changes."""
+    from .build import CAMERAS, TRANSFORM, TRANSFORM_COLLECTION
     ts, cur = scene.tool_settings, scene.cursor
+    vl = bpy.context.view_layer
+    rig_lc, cam_lc = _layer(vl, TRANSFORM_COLLECTION), _layer(vl, CAMERAS)
+    rig = bpy.data.objects.get(TRANSFORM)
     if scene.livinglacquer_props.pipe_pivot_origin:
-        if "ll_prev_pivot" not in scene:
+        if "ll_prev_pivot" not in scene:            # remember what the user had (once)
             scene["ll_prev_pivot"] = ts.transform_pivot_point
             scene["ll_prev_cursor"] = list(cur.location)
+            scene["ll_prev_active"] = vl.objects.active.name if vl.objects.active else ""
+            scene["ll_prev_selected"] = json.dumps([o.name for o in vl.objects.selected])
+            scene["ll_prev_cams_hidden"] = bool(cam_lc and cam_lc.hide_viewport)
         _enforce(scene)
+        if rig_lc:
+            rig_lc.exclude = False
+            rig_lc.hide_viewport = False
+        if cam_lc:
+            cam_lc.hide_viewport = True
+        if rig is not None and vl.objects.get(rig.name):
+            for o in vl.objects.selected:
+                o.select_set(False)
+            rig.hide_set(False)
+            rig.select_set(True)
+            vl.objects.active = rig
         if not bpy.app.timers.is_registered(_tick):
             bpy.app.timers.register(_tick, first_interval=0.5, persistent=True)
     else:
         if "ll_prev_pivot" in scene:
             ts.transform_pivot_point = scene["ll_prev_pivot"]
             cur.location = scene["ll_prev_cursor"]
+            if cam_lc:
+                cam_lc.hide_viewport = bool(scene.get("ll_prev_cams_hidden", False))
+            if rig is not None:
+                rig.select_set(False)
+            for name in json.loads(scene.get("ll_prev_selected", "[]")):
+                o = vl.objects.get(name)
+                if o is not None:
+                    o.select_set(True)
+            vl.objects.active = vl.objects.get(scene.get("ll_prev_active", "")) or None
+        if rig_lc:
+            rig_lc.hide_viewport = True
         for k in PIVOT_KEYS:
             if k in scene:
                 del scene[k]

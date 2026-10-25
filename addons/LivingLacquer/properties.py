@@ -35,7 +35,7 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
     addon_version: StringProperty(
         name="Version",
         description="Current addon version",
-        default="0.2.5"
+        default="0.2.6"
     )
 
     # metashape: collection the sidebar steps through, and the background photo look
@@ -85,9 +85,10 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
         description="Draw a 1.7 m person, a 0.75 m table and a 0.30 m cat on the floor next to the scan, to judge how much to scale it",
         update=lambda self, context: _redraw_view3d(context))
     pipe_pivot_origin: BoolProperty(
-        name="Pivot at World Origin", default=False, update=_pivot_update,
-        description="Pivot Point = 3D Cursor, and keep the cursor at the world origin while this is on, so "
-                    "scaling / rotating happens about the center of the world. Off: your pivot and cursor come back")
+        name="Work on the Transform", default=False, update=_pivot_update,
+        description="On: select the Transform empty, show TRANSFORM, hide the cameras, Pivot Point = 3D Cursor "
+                    "held at the world origin (scale / rotate the scan about the center of the world). Off: hides "
+                    "TRANSFORM, gives back the cameras, your pivot, cursor, selection and active object")
     pipe_show_gear: BoolProperty(name="Advanced", description="Show the advanced options", default=False)
     pipe_show_report: BoolProperty(name="Details", description="Show every line of the Check Links report",
                                    default=False)

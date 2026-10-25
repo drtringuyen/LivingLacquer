@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.6 (2026-10-25)
+
+- Step 6 is one row: **Build** + three icons: Size refs, Auto Level & Center, Work on the Transform. The Scale button is gone (press S; the first Build still starts scaling by itself).
+- **Work on the Transform** (the pivot icon, switched on by Build): besides the pivot at the world origin it selects the Transform empty and makes it active, shows the TRANSFORM collection and hides the cameras. Switching it off hides TRANSFORM again and gives back the cameras' visibility, your pivot, cursor, selection and active object.
+- Checked headless: Build -> on; off restores; a user state (Individual Origins, Cube + Light selected, cameras hidden) survives on -> off unchanged.
+
 ## 0.2.5 (2026-10-25)
 
 - **Pivot at World Origin is switched on by Build**, so scaling / rotating right after a Build happens about the center of the world (switch it off to get your own pivot back).
