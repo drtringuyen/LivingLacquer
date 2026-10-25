@@ -2,6 +2,16 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 
 
+def _apply_backgrounds(props):
+    """Opacity / depth straight onto every camera of the cameras collection (no Apply button)."""
+    col = bpy.data.collections.get(props.metashape_collection)
+    for o in col.all_objects if col else []:
+        if o.type == "CAMERA":
+            for bg in o.data.background_images:
+                bg.alpha = props.metashape_bg_alpha
+                bg.display_depth = props.metashape_bg_depth
+
+
 def _redraw_view3d(context):
     for win in context.window_manager.windows:
         for area in win.screen.areas:
@@ -15,6 +25,15 @@ def _pivot_update(self, context):
     except ImportError:
         return
     view.apply(context.scene)
+
+
+def _guide_update(context):
+    try:
+        from .modules.engines import guide
+    except ImportError:
+        return
+    if bpy.data.texts.get(guide.TEXT):
+        guide.write_text(context)
 
 
 class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
@@ -35,7 +54,7 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
     addon_version: StringProperty(
         name="Version",
         description="Current addon version",
-        default="0.2.6"
+        default="0.3.4"
     )
 
     # metashape: collection the sidebar steps through, and the background photo look
@@ -46,14 +65,14 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
     )
     metashape_bg_alpha: FloatProperty(
         name="Opacity",
-        description="Opacity of the background photo",
-        default=0.6, min=0.0, max=1.0
+        description="Opacity of the cameras' background photos (all scan cameras at once)",
+        default=0.6, min=0.0, max=1.0, update=lambda self, context: _apply_backgrounds(self)
     )
     metashape_bg_depth: EnumProperty(
         name="Depth",
         items=[("BACK", "Back", "Draw the photo behind the scene"),
                ("FRONT", "Front", "Draw the photo over the scene")],
-        default="FRONT"
+        default="FRONT", update=lambda self, context: _apply_backgrounds(self)
     )
 
     # scan pipeline: engine for step 4 (also written to livinglacquer.json), panel toggles
@@ -72,6 +91,13 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
         default="NORMAL"
     )
     pipe_show_guide: BoolProperty(name="How to work in Agisoft", default=False)
+    pipe_guide_all: BoolProperty(
+        name="Show All Steps", default=False, update=lambda self, context: _guide_update(context),
+        description="Also list the Agisoft steps already done (marked [done]); off shows only what is left")
+    pipe_guide_paths: BoolProperty(
+        name="Show Paths", default=False, update=lambda self, context: _guide_update(context),
+        description="Write the full folder / file paths into the Agisoft guide text (the copy buttons work "
+                    "either way)")
     pipe_out_format: EnumProperty(
         name="Format", description="File format of converted and undistorted photos",
         items=[("JPG", "JPG", ""), ("PNG", "PNG", ""), ("TIF", "TIFF", "")],

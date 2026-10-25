@@ -9,6 +9,13 @@ from .parse import parse_metashape_xml
 from .photos import guess_image_dir, index_images, read_image_size, size_matches, undistort_image
 
 
+def _show_cameras(context):
+    """A hidden camera draws no background photo: leave "Work on the Transform" (it hides the cameras)."""
+    props = context.scene.livinglacquer_props
+    if getattr(props, "pipe_pivot_origin", False):
+        props.pipe_pivot_origin = False
+
+
 class LIVINGLACQUER_OT_MetashapeImport(bpy.types.Operator, ImportHelper):
     """Import Agisoft Metashape XML cameras with undistorted background photos"""
     bl_idname = "livinglacquer.metashape_import"
@@ -191,6 +198,7 @@ class LIVINGLACQUER_OT_MetashapeLookThrough(bpy.types.Operator):
         return context.active_object and context.active_object.type == "CAMERA"
 
     def execute(self, context):
+        _show_cameras(context)
         set_view_camera(context, context.active_object)
         return {"FINISHED"}
 
@@ -203,6 +211,7 @@ class LIVINGLACQUER_OT_MetashapeStepCamera(bpy.types.Operator):
 
     def execute(self, context):
         sc = context.scene
+        _show_cameras(context)
         col = bpy.data.collections.get(sc.livinglacquer_props.metashape_collection)
         cams = sorted([o for o in col.objects if o.type == "CAMERA"], key=lambda o: o.name) if col else []
         if not cams:

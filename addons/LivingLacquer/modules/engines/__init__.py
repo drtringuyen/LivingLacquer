@@ -8,12 +8,14 @@ Open Source: COLMAP (one camera per lens) + OpenMVS, no clicks.
 OpenMVS / COLMAP work in a local folder (⚙ Local Work Folder); the result is copied into
 zz.COLMAP_OMVS and published into 01.CAM_Photos / 02.Geometry when the job ends.
 """
-from . import operators
+from . import guide, operators
 
 
 def register():
     operators.register()
+    guide.register()
 
 
 def unregister():
+    guide.unregister()
     operators.unregister()

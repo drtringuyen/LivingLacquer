@@ -54,6 +54,19 @@ def _drop_old_collection(name):
         bpy.data.collections.remove(col)
 
 
+def frame_signature(cams):
+    """Short hash of the first cameras' poses: changes when the cameras were aligned again (new frame)."""
+    vals = [round(v, 3) for c in cams[:6] for row in c["matrix"] for v in row]
+    return hashlib.sha1(json.dumps(vals).encode()).hexdigest()[:12]
+
+
+def _mtime(p):
+    try:
+        return os.path.getmtime(p) if p else 0.0
+    except OSError:
+        return 0.0
+
+
 def fingerprint(cal):
     """Short hash of a sensor calibration: undistorted photos made with another one are stale (C14)."""
     keys = ("f", "cx", "cy", "k1", "k2", "k3", "k4", "p1", "p2", "b1", "b2", "w", "h")
@@ -99,6 +112,7 @@ def build_scene(root):
     props = scene.livinglacquer_props
     lines = []
     rig = transform_empty(scene)
+    align_score = None
 
     yield 0.02, "reading the camera XML and photo sizes"
     sensors, cams, jobs, skipped = camera_jobs(root, found)
@@ -113,6 +127,7 @@ def build_scene(root):
         parent_to(ob, rig, ob.matrix_basis)
         yield 0.4, "lining the mesh up with the cameras"
         score, deg, start = model.align(ob, sensors, cams)
+        align_score = score
         if deg is not None:
             lines.append(f"Alignment {score:.0%} of the mesh inside the photos, rotation X {deg:+.0f} deg"
                          + ("" if deg == start else f" (changed from {start:+.0f})"))
@@ -150,6 +165,17 @@ def build_scene(root):
     no_photo = [c["label"] for c, _cal, photo, out in jobs if not photo and not os.path.exists(out)]
     if no_photo:
         lines.append(f"{len(no_photo)} camera(s) without a photo (no background): " + ", ".join(no_photo[:5]))
+    # a new camera alignment (Agisoft re-aligned, another engine) is another coordinate frame: the old
+    # levelling / scale would be wrong for it, so the Transform starts over
+    sig = frame_signature(cams)
+    if rig.get("ll_frame") and rig["ll_frame"] != sig:
+        rig.matrix_world = Matrix.Identity(4)
+        if "ll_levelled" in rig:
+            del rig["ll_levelled"]
+        lines.append("New camera alignment: Transform reset (level and scale it again)")
+    rig["ll_frame"] = sig
+    rig["ll_built"] = json.dumps({"xml": _mtime(found["xml"]), "model": _mtime(found["model"]),
+                                  "align": align_score})       # step 4 trusts this over the file dates
     if level.is_fresh(rig):                     # first Build: stand it upright in the middle (once)
         yield 0.97, "levelling and centering"
         bpy.context.view_layer.update()

@@ -5,9 +5,9 @@ import bpy
 
 from ..project import jobs, state
 from ..scene import operators as scene_ops
-from . import agisoft, pipelines, tools
+from . import agisoft, guide, pipelines, tools
 
-STATUS = {"text": "", "watch": None, "watch_state": {}, "blend": None}
+STATUS = {"text": "", "watch": None, "watch_state": {}, "blend": None, "copied": ""}
 
 
 def _set(text):
@@ -73,7 +73,8 @@ class LIVINGLACQUER_OT_PipeReconstruct(bpy.types.Operator):
                 STATUS["watch"] = agisoft.Watcher(root, engine)
                 STATUS["watch_state"] = {}
                 _set("Metashape opened; the photo folder is on the clipboard. Follow the guide.")
-                props.pipe_show_guide = True
+                if not bpy.app.background:
+                    guide.open_window(context)     # the guide next to Metashape
                 if not bpy.app.timers.is_registered(_watch_tick):
                     bpy.app.timers.register(_watch_tick, first_interval=2.0)
         except Exception as e:
@@ -94,6 +95,10 @@ class LIVINGLACQUER_OT_PipeCopyPath(bpy.types.Operator):
             return {"CANCELLED"}
         p = agisoft.targets(root).get(self.key, "")
         context.window_manager.clipboard = p
+        STATUS["copied"] = self.key                     # the guide keeps this button lit: where you are
+        for win in context.window_manager.windows:
+            for area in win.screen.areas:
+                area.tag_redraw()
         self.report({"INFO"}, f"Copied: {p}")
         return {"FINISHED"}
 

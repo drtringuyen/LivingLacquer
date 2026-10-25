@@ -1,23 +1,23 @@
-"""Steps 2-3 rows of the Scan Pipeline panel."""
+"""Step 2 - Photos: receive (iPhone / watch folder) and convert & sort."""
 import bpy
 
+from ..project.ui import big_row
 from . import deps, operators, receiver
 
 
 def draw_step(number, layout, context):
-    if number == 2:
-        _draw_receive(layout)
-    else:
-        _draw_convert(layout, context)
+    _draw_receive(layout)
+    layout.separator()
+    _draw_convert(layout, context)
 
 
 def _draw_receive(layout):
     st = receiver.status()
-    row = layout.row(align=True)
+    row = big_row(layout)
     if st["running"]:
-        row.operator("livinglacquer.pipe_receive", text="Stop", icon="PAUSE").action = "STOP"
+        row.operator("livinglacquer.pipe_receive", text="2. Stop Receiving", icon="PAUSE").action = "STOP"
     else:
-        row.operator("livinglacquer.pipe_receive", text="Start Receiving", icon="PLAY").action = "START"
+        row.operator("livinglacquer.pipe_receive", text="2. Start Receiving", icon="PLAY").action = "START"
     sub = row.row(align=True)
     sub.active_default = operators.STATUS["watch"]
     sub.operator("livinglacquer.pipe_receive", text="", icon="HIDE_OFF").action = "WATCH"
@@ -40,8 +40,8 @@ def _draw_receive(layout):
 
 def _draw_convert(layout, context):
     need = deps.missing(["PIL", "heif"])
-    row = layout.row(align=True)
-    row.operator("livinglacquer.pipe_convert", text="Convert & Sort", icon="IMAGE_DATA")
+    row = big_row(layout)
+    row.operator("livinglacquer.pipe_convert", text="2. Convert & Sort", icon="IMAGE_DATA")
     if need:
         row.operator("livinglacquer.pipe_install_deps", text="Install converters", icon="IMPORT").packages = \
             ",".join(need)

@@ -1,6 +1,7 @@
-"""Step 5 row of the Scan Pipeline panel and the report under it."""
+"""Step 3 - Reconstruct, second part: Check Links and its report."""
 import bpy
 
+from ..project.ui import big_row
 from . import checks, operators
 
 ICONS = {checks.OK: "CHECKMARK", checks.INFO: "INFO", checks.WARN: "ERROR", checks.ERROR: "CANCEL"}
@@ -9,11 +10,12 @@ MAX_LINES = 12
 
 
 def draw_step(number, layout, context):
+    layout.separator()
     props = context.scene.livinglacquer_props
     rep = operators.REPORT
     current = rep["blend"] == bpy.data.filepath and rep["items"]
-    row = layout.row(align=True)
-    row.operator("livinglacquer.pipe_check_links", text="Check", icon="VIEWZOOM")
+    row = big_row(layout)
+    row.operator("livinglacquer.pipe_check_links", text="3. Check Links", icon="VIEWZOOM")
     if current:
         ok, warn, err = operators.counts()
         row.label(text=str(ok), icon="CHECKMARK")

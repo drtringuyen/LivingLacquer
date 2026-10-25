@@ -10,16 +10,20 @@
 8 Package copies the newest engine result (engine_result.json) into 01.CAM_Photos / 02.Geometry
   with the standard names, updates livinglacquer.json and makes the .blend paths relative.
 """
-from . import human, operators, view
+from . import gizmos, human, icons, operators, view
 
 
 def register():
+    icons.register()
     operators.register()
     human.register()
     view.register()
+    gizmos.register()
 
 
 def unregister():
+    gizmos.unregister()
     view.unregister()
     human.unregister()
     operators.unregister()
+    icons.unregister()

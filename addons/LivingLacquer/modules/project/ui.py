@@ -1,30 +1,38 @@
-"""Scan Pipeline panel: the numbered steps (plan §3). Each step is drawn by the module that owns
-it; a step whose module is off is greyed out."""
+"""Scan Pipeline panel: the numbered steps (plan §3). Each step is a box whose header shows its state
+(steps.py: done / stale / to do / blocked) and opens or closes it; done steps are greyed and closed,
+the current step is open. The step's content is drawn by the module that owns it, with its main action
+as a big button named after the step."""
+import importlib
 import os
 
 import bpy
 
-from . import state
+from . import state, steps
 
-import importlib
-
-# number, title, module that draws the step (its ui.draw_step(number, layout, context))
-STEPS = [
-    (2, "Receive", "ingest"),
-    (3, "Convert & Sort", "ingest"),
-    (4, "Reconstruct", "engines"),
-    (5, "Check Links", "linker"),
-    (6, "Build Scene", "scene"),
-    (7, "Undistort & BG", "scene"),
-    (8, "Package", "scene"),
-]
+# number, module that draws the step (its ui.draw_step(number, layout, context))
+STEPS = [(1, ("project",)), (2, ("ingest",)), (3, ("engines", "linker")), (4, ("scene",)), (5, ("scene",))]
+BIG = 1.5               # height of a step's main button
+# green = done, red = a problem (alert), the current step is lit and marked with a play arrow
+ICON = {steps.DONE: "STRIP_COLOR_04", steps.STALE: "STRIP_COLOR_01", steps.TODO: "RADIOBUT_OFF",
+        steps.BLOCKED: "LOCKED"}
 
 
-def _step_box(layout, number, title, enabled=True):
-    box = layout.box()
-    box.enabled = enabled
-    box.label(text=f"{number}. {title}")
-    return box
+def big_row(layout):
+    """Row for a step's main button (taller, easier to read and hit)."""
+    row = layout.row(align=True)
+    row.scale_y = BIG
+    return row
+
+
+def draw_step(number, layout, context):
+    """Step 1 - Object (this module)."""
+    st = state.get()
+    row = big_row(layout)
+    row.operator("livinglacquer.pipe_new_object", text="1. New Object…", icon="FILE_NEW")
+    row.operator("livinglacquer.pipe_open_object", text="Open Object…", icon="FILE_FOLDER")
+    if not st["root"]:
+        layout.label(text="Not in an object folder: New Object saves it into one" if bpy.data.filepath
+                     else "Save as an object to start", icon="ERROR")
 
 
 class LIVINGLACQUER_PT_Pipeline(bpy.types.Panel):
@@ -50,28 +58,42 @@ class LIVINGLACQUER_PT_Pipeline(bpy.types.Panel):
 
         row = layout.row(align=True)
         row.prop(props, "pipe_engine", expand=True)
+        row.operator("livinglacquer.pipe_refresh_steps", text="", icon="FILE_REFRESH")
         row.prop(props, "pipe_show_gear", text="", icon="PREFERENCES")
         if props.pipe_show_gear:
             self._draw_gear(layout, context, st)
 
-        # 1. Object
-        box = _step_box(layout, 1, "Object")
-        row = box.row(align=True)
-        row.operator("livinglacquer.pipe_new_object", text="New Object…", icon="FILE_NEW")
-        row.operator("livinglacquer.pipe_open_object", text="Open Object…", icon="FILE_FOLDER")
-        if st["root"]:
-            box.label(text=os.path.basename(st["root"]), icon="CHECKMARK")
-        elif bpy.data.filepath:
-            box.label(text="Not in an object folder: New Object saves it into one", icon="ERROR")
-        else:
-            box.label(text="Save as an object to start", icon="ERROR")
-
-        for number, title, mod in STEPS:
-            box = _step_box(layout, number, title, enabled=bool(st["root"]) and module_manager.is_loaded(mod))
-            if module_manager.is_loaded(mod):
-                importlib.import_module(f"..{mod}.ui", __package__).draw_step(number, box, context)
-            else:
-                box.label(text=f"Module '{mod}' is off (Infos › Debug › Modules)")
+        status = steps.get()
+        current = steps.current()
+        for number, mods in STEPS:
+            state_, note = status.get(number, (steps.TODO, ""))
+            loaded = [m for m in mods if m == "project" or module_manager.is_loaded(m)]
+            box = layout.box()
+            hdr = box.row(align=True)
+            hdr.alert = state_ == steps.STALE                          # a problem: red
+            hdr.active = state_ != steps.BLOCKED
+            icon = "PLAY" if number == current else ICON[state_]
+            text = f"{number}. {steps.NAMES[number]}" + (f"   ·   {note}" if note else "")
+            hdr.operator("livinglacquer.pipe_toggle_step", text=text, icon=icon, emboss=False,
+                         depress=number == current).step = number
+            if state_ == steps.DONE and number != current:
+                hdr.label(text="", icon="CHECKMARK")
+            is_open = steps.expanded(number)
+            hdr.label(text="", icon="DISCLOSURE_TRI_DOWN" if is_open else "DISCLOSURE_TRI_RIGHT")
+            if not is_open:
+                continue
+            col = box.column()
+            col.enabled = bool(loaded) and (number == 1 or (bool(st["root"]) and state_ != steps.BLOCKED))
+            for mod in mods:
+                if mod not in loaded:
+                    col.label(text=f"Module '{mod}' is off (Infos › Debug › Modules)")
+                elif mod == "project":
+                    draw_step(number, col, context)
+                else:
+                    importlib.import_module(f"..{mod}.ui", __package__).draw_step(number, col, context)
+            if state_ == steps.BLOCKED:
+                need = ", ".join(f"{r}. {steps.NAMES[r]}" for r in steps.NEEDS.get(number, ()))
+                box.label(text=f"Do {need} first", icon="LOCKED")
 
     def _draw_gear(self, layout, context, st):
         box = layout.box()

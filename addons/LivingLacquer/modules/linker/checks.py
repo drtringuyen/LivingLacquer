@@ -160,7 +160,7 @@ def check_folder_iter(root):
         items.append(item("A3", ERROR, f"{len(dup)} photo name(s) used in several folders",
                           [f"{s}: " + ", ".join(paths.rel(root, p) for p in v) for s, v in list(dup.items())[:20]]))
     if stray:
-        items.append(item("A2", INFO, f"{len(stray)} HEIC/RAW file(s) next to the JPGs (step 3 moves them to "
+        items.append(item("A2", INFO, f"{len(stray)} HEIC/RAW file(s) next to the JPGs (step 2, Convert & Sort, moves them to "
                           f"{paths.ORIGINALS})", stray[:20]))
     if extras:
         items.append(item("A4", INFO, f"{len(extras)} iPhone extra(s) (IMG_E edits, .MOV) ignored", extras[:20]))
@@ -284,9 +284,21 @@ def _check_cameras(root, found, src, items):
                           "(stale, re-undistort)", bad))
     if len(have) < len(aligned):
         items.append(item("C14", INFO, f"{len(have)} of {len(aligned)} cameras have an undistorted photo; "
-                          "step 7 makes the rest"))
+                          "step 4 (Undistort) makes the rest"))
     elif not bad:
         items.append(item("C14", OK, f"All {len(aligned)} cameras have an undistorted photo"))
+
+
+def _scene_alignment(obj, xml):
+    """The built scene's alignment score for this XML (scene.model.scene_alignment), or None outside
+    Blender / before Build."""
+    try:
+        import bpy
+        from ..scene.model import scene_alignment
+    except ImportError:
+        return None
+    mesh = bpy.data.objects.get(f"OBJ_{obj}")
+    return scene_alignment(mesh, xml) if mesh is not None and mesh.parent is not None else None
 
 
 def _check_geometry(root, found, items):
@@ -297,7 +309,15 @@ def _check_geometry(root, found, items):
         return
     items.append(item("D20", OK, f"Model {os.path.basename(model)}"))
     if xml and os.path.getmtime(model) + 1 < os.path.getmtime(xml):
-        items.append(item("C17", WARN, "The model is older than the camera XML (re-export the model?)"))
+        score = _scene_alignment(obj, xml)
+        if score is not None and score >= 0.5:      # older file, but the built scene shows they match
+            items.append(item("C17", OK, f"Cameras exported after the model, and they line up ({score:.0%})"))
+        elif score is not None:
+            items.append(item("C17", WARN, f"The model and the cameras do not line up ({score:.0%}): "
+                              "re-export the model after the alignment"))
+        else:
+            items.append(item("C17", WARN, "The model is older than the camera XML: Build Scene checks if "
+                              "they still match"))
     tex = found["textures"]
     if not tex:
         items.append(item("D20", WARN, f"No texture OBJ_{obj}.jpg next to the model"))

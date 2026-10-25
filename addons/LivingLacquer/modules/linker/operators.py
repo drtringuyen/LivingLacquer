@@ -6,7 +6,7 @@ import time
 import bpy
 from bpy.app.handlers import persistent
 
-from ..project import jobs, marker, paths, state
+from ..project import jobs, marker, paths, state, steps
 from . import blendpaths, checks
 
 # last report, for the open .blend only; found / actions feed the Fix dialog
@@ -23,6 +23,7 @@ def check_steps(root):
         items, actions = blendpaths.plan(root, job.data["found"])
         REPORT.update(blend=bpy.data.filepath, items=job.data["items"] + items, found=job.data["found"],
                       actions=actions, seconds=time.time() - job.data["t0"])
+        steps.record_check(root, *counts())          # step 5's state for the step list
 
     return [jobs.Step("Folders and photos", folder, weight=9), jobs.Step(".blend paths", blend, weight=1)]
 

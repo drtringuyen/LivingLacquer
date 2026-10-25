@@ -35,11 +35,11 @@ CAT = [(0.00, 0.24), (0.02, 0.25), (0.05, 0.16), (0.10, 0.18), (0.25, 0.19), (0.
 CAT = [(x - 0.22, z * CAT_M / 0.31) for x, z in CAT]          # centred on x = 0, ears at CAT_M
 
 
-def _tris(outline):
+def tris(outline):
     return tessellate_polygon([[Vector((x, z, 0)) for x, z in outline]])
 
 
-_PERSON_TRIS, _CAT_TRIS = _tris(PERSON), _tris(CAT)
+_PERSON_TRIS, _CAT_TRIS = tris(PERSON), tris(CAT)
 _handles = []
 _samples = {}          # mesh name -> (mesh data pointer, (n, 4) local points): read once per mesh
 

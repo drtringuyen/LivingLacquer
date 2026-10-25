@@ -128,7 +128,7 @@ class LIVINGLACQUER_OT_ToggleProject(bpy.types.Operator):
 
 
 class LIVINGLACQUER_OT_ToggleLinker(bpy.types.Operator):
-    """Toggle Linker module (step 5, Check Links) on/off"""
+    """Toggle Linker module (step 3: Check Links) on/off"""
     bl_idname = "livinglacquer.toggle_linker"
     bl_label = "Linker"
 
@@ -139,7 +139,7 @@ class LIVINGLACQUER_OT_ToggleLinker(bpy.types.Operator):
 
 
 class LIVINGLACQUER_OT_ToggleScene(bpy.types.Operator):
-    """Toggle Scene module (steps 6-8: Build Scene, Undistort, Package) on/off"""
+    """Toggle Scene module (steps 4-5: Build Scene & Cameras, Package) on/off"""
     bl_idname = "livinglacquer.toggle_scene"
     bl_label = "Scene"
 
@@ -150,7 +150,7 @@ class LIVINGLACQUER_OT_ToggleScene(bpy.types.Operator):
 
 
 class LIVINGLACQUER_OT_ToggleIngest(bpy.types.Operator):
-    """Toggle Ingest module (steps 2-3: iPhone receiver, Convert & Sort) on/off"""
+    """Toggle Ingest module (step 2, Photos: iPhone receiver, Convert & Sort) on/off"""
     bl_idname = "livinglacquer.toggle_ingest"
     bl_label = "Ingest"
 
@@ -161,7 +161,7 @@ class LIVINGLACQUER_OT_ToggleIngest(bpy.types.Operator):
 
 
 class LIVINGLACQUER_OT_ToggleEngines(bpy.types.Operator):
-    """Toggle Engines module (step 4: Agisoft / Hybrid / Open Source) on/off"""
+    """Toggle Engines module (step 3: Agisoft / Hybrid / Open Source) on/off"""
     bl_idname = "livinglacquer.toggle_engines"
     bl_label = "Engines"
 

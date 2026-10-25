@@ -116,6 +116,32 @@ def _score(world_pts, cams, sensors):
     return hits / total if total else 0.0
 
 
+_scene_scores = {}      # (mesh, xml path, xml mtime, mesh matrix) -> score
+
+
+def scene_alignment(mesh, xml_path):
+    """How well the built mesh lines up with the cameras of xml_path (0-1), measured in the Transform's
+    space where both live; None if it cannot be measured. Cached until the mesh or the XML changes.
+    Lets the step list / Check Links trust a model that is older than its cameras when they still match."""
+    import os
+    from ..metashape.parse import parse_metashape_xml
+    try:
+        key = (mesh.name, xml_path, os.path.getmtime(xml_path), tuple(map(tuple, mesh.matrix_basis)))
+    except (OSError, ReferenceError):
+        return None
+    if key not in _scene_scores:
+        try:
+            sensors, cams = parse_metashape_xml(xml_path)
+            pick = [cams[i] for i in np.linspace(0, len(cams) - 1, min(9, len(cams))).astype(int)] if cams else []
+            local = sample_vertices(mesh)
+            m = np.array(mesh.matrix_basis)
+            pts = (np.c_[local, np.ones(len(local))] @ m.T)[:, :3]
+            _scene_scores[key] = _score(pts, pick, sensors) if pick else None
+        except Exception:
+            _scene_scores[key] = None
+    return _scene_scores[key]
+
+
 def align(ob, sensors, cameras, n_cams=9):
     """Try the X rotations, keep the one where the mesh projects into the most photos.
     Returns (score 0-1, rotation in degrees, start rotation in degrees)."""

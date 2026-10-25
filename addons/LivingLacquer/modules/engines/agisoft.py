@@ -7,27 +7,91 @@ import time
 
 from ..project import paths
 
-# guide lines: (text, key of a path to copy or None)
+# guide lines: (text, key of a path to copy or None, what the line is about: see guide_status)
+_PATH = ("0. Photos moved: in Metashape's Workspace pane right-click the photos › Change Path… › "
+         "pick the photo folder", "source", "path")
 GUIDE = {
     "AGISOFT": [
-        ("1. Workflow › Add Folder: paste the photo folder", "source"),
-        ("2. File › Save As: paste the project path", "psx"),
-        ("3. Workflow › Align Photos (Accuracy High)", None),
-        ("   check: all cameras aligned, only one component", None),
-        ("4. Workflow › Build Model (from depth maps) › Build Texture", None),
-        ("5. File › Export › Export Cameras (Agisoft XML):", "xml"),
-        ("6. File › Export › Export Model (Alembic .abc):", "model"),
-        ("7. File › Export › Export Texture (JPEG):", "texture"),
-        ("Moved photos? right-click Chunk › Change Path › the photo folder", None),
+        _PATH,
+        ("1. Workflow › Add Folder: paste the photo folder", "source", "folder"),
+        ("2. File › Save As: paste the project path", "psx", "save"),
+        ("3. Workflow › Align Photos (Accuracy High)", None, "align"),
+        ("   check: all cameras aligned, only one component", None, "align"),
+        ("4. Workflow › Build Model (from depth maps) › Build Texture", None, "build"),
+        ("5. File › Export › Export Cameras (Agisoft XML):", "xml", "xml"),
+        ("6. File › Export › Export Model (Alembic .abc):", "model", "model"),
+        ("7. File › Export › Export Texture (JPEG):", "texture", "texture"),
     ],
     "HYBRID": [
-        ("1. Workflow › Add Folder: paste the photo folder", "source"),
-        ("2. File › Save As: paste the project path", "psx"),
-        ("3. Workflow › Align Photos (High), check the alignment", None),
-        ("4. File › Export › Export Cameras (Agisoft XML):", "xml"),
-        ("Blender then builds mesh + texture with OpenMVS by itself", None),
+        _PATH,
+        ("1. Workflow › Add Folder: paste the photo folder", "source", "folder"),
+        ("2. File › Save As: paste the project path", "psx", "save"),
+        ("3. Workflow › Align Photos (High), check the alignment", None, "align"),
+        ("4. File › Export › Export Cameras (Agisoft XML):", "xml", "xml"),
     ],
 }
+_project_cache = {}     # frame.zip path -> (its mtime, parsed state)
+
+
+def project_state(root):
+    """What the Metashape project already holds, read from its own files (no Metashape needed):
+    {'psx', 'open' (lock file), 'photos', 'missing' (photos not where Metashape looks), 'looks_in',
+     'aligned', 'model'}. Reads the small doc.xml inside .files/0/0/frame.zip and .files/0/chunk.zip."""
+    import re
+    import zipfile
+    psx = targets(root)["psx"]
+    st = {"psx": os.path.exists(psx), "open": False, "photos": 0, "missing": 0, "looks_in": "", "aligned": 0,
+          "model": False}
+    files = os.path.splitext(psx)[0] + ".files"
+    if not (st["psx"] and os.path.isdir(files)):
+        return st
+    st["open"] = os.path.exists(os.path.join(files, "lock"))
+    frame = os.path.join(files, "0", "0", "frame.zip")
+    chunk = os.path.join(files, "0", "chunk.zip")
+    key = (os.path.getmtime(frame) if os.path.exists(frame) else 0,
+           os.path.getmtime(chunk) if os.path.exists(chunk) else 0)
+    hit = _project_cache.get(files)
+    if hit and hit[0] == key:
+        st.update(hit[1])
+        return st
+    parsed = {}
+    try:
+        with zipfile.ZipFile(frame) as z:
+            doc = z.read("doc.xml").decode("utf-8", "replace")
+        photos = re.findall(r'<photo path="([^"]+)"', doc)
+        base = os.path.dirname(frame)
+        resolved = [os.path.normpath(os.path.join(base, p)) if not os.path.isabs(p) else p for p in photos]
+        missing = [p for p in resolved if not os.path.exists(p)]
+        parsed.update(photos=len(photos), missing=len(missing), model="<model" in doc,
+                      looks_in=os.path.dirname(missing[0]) if missing else "")
+    except (OSError, KeyError, zipfile.BadZipFile):
+        pass
+    try:
+        with zipfile.ZipFile(chunk) as z:
+            doc = z.read("doc.xml").decode("utf-8", "replace")
+        parsed["aligned"] = doc.count("<transform>")
+    except (OSError, KeyError, zipfile.BadZipFile):
+        pass
+    _project_cache[files] = (key, parsed)
+    st.update(parsed)
+    return st
+
+
+def guide_status(root, engine):
+    """[(text, key, what, done)] for the guide lines, from the project files and the exports."""
+    t = targets(root)
+    p = project_state(root)
+    exists = lambda k: os.path.exists(t[k]) or (k == "model" and any(
+        os.path.exists(os.path.splitext(t[k])[0] + e) for e in paths.MODEL_EXTS))
+    done = {
+        "path": not p["missing"],                       # nothing to fix: the line stays hidden
+        "folder": p["photos"] > 0,
+        "save": p["psx"],
+        "align": p["aligned"] > 0 or exists("xml"),
+        "build": p["model"] or (exists("model") and exists("texture")),
+        "xml": exists("xml"), "model": exists("model"), "texture": exists("texture"),
+    }
+    return [(text, key, what, done[what]) for text, key, what in GUIDE[engine]], p
 
 
 def targets(root):

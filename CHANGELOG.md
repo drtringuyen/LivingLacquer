@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.3.4 (2026-10-25)
+
+- **Step 3 no longer stays red when the cameras were exported after the model** in a scene built before 0.3.1: the add-on now measures from the built scene how well the mesh lines up with the cameras (`scene.model.scene_alignment`, cached) instead of asking for another Build. Check Links' C17 uses the same measurement: "Cameras exported after the model, and they line up (86 %)" is OK; only a real mismatch stays a warning.
+- Checked on a scratch Teapot with no Build record (step 3 done, C17 OK) and live on the Teapot (step 3 done, 86 %).
+
+## 0.3.3 (2026-10-25)
+
+- **Context-aware Agisoft guide:** it reads Metashape's own project files (photos added and whether they are where Metashape looks, cameras aligned, model built, project open) and the exports, and shows only the steps still to do, keeping their numbers. When photos were moved it starts with "0. Change Path". When nothing is left in Agisoft it says so and names the next step in Blender. Copy buttons only for the steps left; "Show all steps" lists the done ones as [done]. The window updates itself every 3 s while open.
+- Checked read-only on the real Teapot project (52 photos, 52 aligned, model built, all photos looked for in the old `zz.Agisoft\00.Photos` -> only Change Path is left) and in a separate Blender window for a project not saved yet.
+
+## 0.3.2 (2026-10-25)
+
+- **5 steps instead of 8:** 1 Object · 2 Photos (receive + convert & sort) · 3 Reconstruct (engine + Check Links) · 4 Build Scene & Cameras (build + undistort + camera photos) · 5 Package. Green = done, red = a problem, ▶ = the step to work on.
+- **Metashape panel merged into step 4:** Look Through Camera with ◀ ▶, photo opacity and front / back (now applied to all cameras as you change them, no Apply button). The separate panel is gone; its importer is still in File › Import.
+- **Fix: camera photos did not show.** "Work on the Transform" hides the cameras, and Blender draws no photo for a hidden camera. Looking through a camera (or ◀ ▶) now switches that toggle off, and step 4 says when photos are hidden because of it.
+- **Agisoft guide:** buttons carry their guide step number (1. Photo folder, 2. Project .psx, 5. Cameras .xml, ...) and the last one you copied stays lit.
+- Checked in a separate Blender window: photo visible / hidden by the toggle / back after ▶; the 5-step panel colours; the numbered guide.
+
+## 0.3.1 (2026-10-25)
+
+- **Agisoft guide window:** its sidebar shows only "Agisoft Paths" (Blender's Find & Replace / Properties panels are hidden in that window only); buttons are named Photo folder, Project .psx, Cameras .xml, Model .abc, Texture .jpg; the paths are left out of the text unless **Show paths** is switched on.
+- **Step 4 is no longer flagged just because the cameras were exported after the model:** Build now records how well the mesh lines up with the cameras, and when that was measured on these exact files (>= 50 %), step 4 is done ("line up 86 %").
+- Checked: step 4 before / after Build on the scratch Teapot with newer cameras, guide text with and without paths, Blender's panels restored on unregister, guide window in a separate Blender window.
+
+## 0.3.0 (2026-10-25)
+
+- **Step status:** the add-on works out which steps are done from the object folder and the .blend (done ✔ / stale ⚠ / to do / blocked 🔒, with a one-line summary each) and which one is current (▶). Refreshed after every job and file load; refresh button next to the engine switch.
+- **Panel:** done steps are greyed and folded, the current step is open, later steps stay locked until what they need is done; click a step's header to open or close it. Each step's main button is big and carries the step's name ("3. Convert & Sort", "6. Build Scene", ...).
+- **Agisoft guide in its own window:** "How to work in Agisoft" opens a small movable window with the whole guide and every path written out, plus copy buttons; Open Metashape opens it too.
+- **Fix:** a new camera alignment (Agisoft re-aligned, or another engine) resets the Transform and levels it again, instead of keeping a rotation / scale made for the old alignment.
+- **Fix:** the standing-person viewport button could not be clicked (error on hover).
+- Checked: step detection on 5 objects at different stages (headless), re-alignment reset, panel and guide window in a separate Blender window.
+
+## 0.2.8 (2026-10-25)
+
+- Size refs and Auto Level & Center swapped: Auto Level first, then the person, in the sidebar row and in the viewport column.
+- **Standing-person icon** instead of Blender's running man: a small icon generated from the size-reference silhouette (sidebar) and a custom round viewport button drawing the same figure.
+- Fixed a crash from the first try of this icon (Blender's 2D button `shape` property), installed only for about two minutes; the viewport button is now a Python gizmo and was tested in a separate Blender window before being installed.
+
+## 0.2.7 (2026-10-25)
+
+- **Viewport buttons:** Size refs, Auto Level & Center and Work on the Transform are also round buttons in the 3D Viewport, right under Blender's zoom / pan / camera / ortho buttons. Toggles light up blue while on. They follow the sidebar width and the navigation gizmo size, hide with Show Gizmo / Navigate off, and only appear when the file is an object folder.
+- Checked live in Blender 5.2.2: the three buttons continue Blender's column at the same spacing.
+
 ## 0.2.6 (2026-10-25)
 
 - Step 6 is one row: **Build** + three icons: Size refs, Auto Level & Center, Work on the Transform. The Scale button is gone (press S; the first Build still starts scaling by itself).

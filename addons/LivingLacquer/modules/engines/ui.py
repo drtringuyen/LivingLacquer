@@ -1,7 +1,6 @@
-"""Step 4 row of the Scan Pipeline panel: changes with the engine."""
-import os
-
+"""Step 3 - Reconstruct, first part: the engine (changes with the engine switch)."""
 from ..project import state
+from ..project.ui import big_row
 from . import agisoft, operators, tools
 
 ICON = {"missing": "CHECKBOX_DEHLT", "writing": "SORTTIME", "ready": "CHECKMARK"}
@@ -12,12 +11,12 @@ def draw_step(number, layout, context):
     engine = props.pipe_engine
     need = tools.missing(engine)
     if engine == "OPENSOURCE":
-        row = layout.row(align=True)
-        row.operator("livinglacquer.pipe_reconstruct", text="Run COLMAP + OpenMVS", icon="PLAY").action = "START"
+        row = big_row(layout)
+        row.operator("livinglacquer.pipe_reconstruct", text="3. Reconstruct: COLMAP + OpenMVS", icon="PLAY").action = "START"
         row.prop(props, "pipe_preset", text="")
     else:
-        row = layout.row(align=True)
-        row.operator("livinglacquer.pipe_reconstruct", text="Open Metashape", icon="WINDOW").action = "START"
+        row = big_row(layout)
+        row.operator("livinglacquer.pipe_reconstruct", text="3. Reconstruct: Open Metashape", icon="WINDOW").action = "START"
         if engine == "HYBRID":
             row.operator("livinglacquer.pipe_reconstruct", text="Run OpenMVS", icon="PLAY").action = "OPENMVS"
             row.prop(props, "pipe_preset", text="")
@@ -38,18 +37,6 @@ def draw_step(number, layout, context):
 
 
 def _draw_guide(layout, props, engine):
-    layout.prop(props, "pipe_show_guide", icon="TRIA_DOWN" if props.pipe_show_guide else "TRIA_RIGHT", emboss=False)
-    if not props.pipe_show_guide:
-        return
-    root = state.get()["root"]
-    t = agisoft.targets(root) if root else {}
-    col = layout.column(align=True)
-    for text, key in agisoft.GUIDE[engine]:
-        if key:
-            row = col.row(align=True)
-            row.label(text=text)
-            row.operator("livinglacquer.pipe_copy_path", text="", icon="COPYDOWN").key = key
-            col.label(text="      " + os.path.basename(t.get(key, "")) if key != "source" else
-                      "      " + t.get(key, "")[-60:])
-        else:
-            col.label(text=text)
+    """The guide opens in its own window (guide.py), so it can stay next to Metashape."""
+    layout.operator("livinglacquer.pipe_agisoft_window", text="How to work in Agisoft  (own window)",
+                    icon="WINDOW")

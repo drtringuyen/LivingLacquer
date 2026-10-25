@@ -270,6 +270,9 @@ def ui_override():
     return bpy.context.temp_override()
 
 
+ON_FINISH = []          # called with every finished job (e.g. the step status refresh)
+
+
 def _finish(job):
     if job.on_done:
         try:
@@ -278,6 +281,11 @@ def _finish(job):
             job.log(f"ERROR in on_done: {e}")
             job.error = job.error or str(e)
             job.state = "failed" if job.state == "done" else job.state
+    for f in ON_FINISH:
+        try:
+            f(job)
+        except Exception as e:
+            job.log(f"ERROR in ON_FINISH: {e}")
     _redraw()
 
 
