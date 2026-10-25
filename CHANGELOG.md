@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5 (2026-10-25)
+
+- **Pivot at World Origin is switched on by Build**, so scaling / rotating right after a Build happens about the center of the world (switch it off to get your own pivot back).
+- **Size references:** next to the 1.7 m person there is now a table (0.75 m high, 1.2 x 0.7 m top) and a 0.30 m cat, all on the floor and labelled; the toggle next to Build is now "Size refs".
+- Checked live in Blender 5.2.2: all three draw with their labels.
+
 ## 0.2.4 (2026-10-25)
 
 - The 1.7 m person always stands on the floor (Z = 0), beside the scan.

@@ -135,6 +135,7 @@ class LIVINGLACQUER_OT_PipeBuildScene(_PipeOp, bpy.types.Operator):
             job.data["lines"] = yield from build.build_scene(root)
             if not bpy.app.background:
                 view.frame_scan()           # the scan in the middle of every 3D view, not the empty grid
+            bpy.context.scene.livinglacquer_props.pipe_pivot_origin = True     # scale / rotate about the origin
             for line in job.data["lines"]:
                 print("LivingLacquer Build Scene:", line)
             _status("build", " · ".join(l for l in job.data["lines"] if not l.startswith("Textures")))

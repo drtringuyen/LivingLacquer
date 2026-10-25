@@ -7,7 +7,7 @@ def draw_step(number, layout, context):
     if number == 6:
         row = layout.row(align=True)
         row.operator("livinglacquer.pipe_build_scene", text="Build", icon="SCENE_DATA")
-        row.prop(props, "pipe_show_human", text="1.7 m", icon="ARMATURE_DATA", toggle=True)
+        row.prop(props, "pipe_show_human", text="Size refs", icon="ARMATURE_DATA", toggle=True)
         row = layout.row(align=True)
         row.operator("livinglacquer.pipe_auto_level", text="Auto Level & Center", icon="ORIENTATION_GLOBAL")
         row.operator("livinglacquer.pipe_scale", text="Scale", icon="FULLSCREEN_ENTER")
