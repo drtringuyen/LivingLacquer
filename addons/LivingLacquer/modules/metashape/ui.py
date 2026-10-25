@@ -8,7 +8,7 @@ class LIVINGLACQUER_PT_Metashape(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "LivingLacquer"
     bl_parent_id = "LIVINGLACQUER_PT_main"
-    bl_order = 0
+    bl_order = 1
 
     def draw_header(self, context):
         self.layout.label(icon='OUTLINER_OB_CAMERA')

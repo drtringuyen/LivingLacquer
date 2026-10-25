@@ -6,7 +6,13 @@ _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "modules_config.json")
 _LOADED = {}
 
 # Edit entries here via blender-addon-modules — panels.py reads this list
-ALL_MODULES = [    {"name": "metashape", "op": "livinglacquer.toggle_metashape", "icon": "OUTLINER_OB_CAMERA"},
+ALL_MODULES = [
+    {"name": "project", "op": "livinglacquer.toggle_project", "icon": "FILE_FOLDER"},
+    {"name": "linker", "op": "livinglacquer.toggle_linker", "icon": "LINKED"},
+    {"name": "scene", "op": "livinglacquer.toggle_scene", "icon": "SCENE_DATA"},
+    {"name": "ingest", "op": "livinglacquer.toggle_ingest", "icon": "IMPORT"},
+    {"name": "engines", "op": "livinglacquer.toggle_engines", "icon": "MOD_REMESH"},
+    {"name": "metashape", "op": "livinglacquer.toggle_metashape", "icon": "OUTLINER_OB_CAMERA"},
 ]
 
 

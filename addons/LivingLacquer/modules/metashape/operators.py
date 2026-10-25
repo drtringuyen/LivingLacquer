@@ -6,7 +6,7 @@ from bpy_extras.io_utils import ImportHelper
 
 from .cameras import build_camera, get_collection, set_view_camera
 from .parse import parse_metashape_xml
-from .photos import guess_image_dir, index_images, undistort_image
+from .photos import guess_image_dir, index_images, read_image_size, size_matches, undistort_image
 
 
 class LIVINGLACQUER_OT_MetashapeImport(bpy.types.Operator, ImportHelper):
@@ -29,8 +29,9 @@ class LIVINGLACQUER_OT_MetashapeImport(bpy.types.Operator, ImportHelper):
                              default="JPG")
     quality: IntProperty(name="JPEG Quality", default=95, min=50, max=100)
     collection_name: StringProperty(name="Collection", default="Cameras_Metashape")
-    skip_odd_size: BoolProperty(name="Skip Odd-Size Photos", default=True,
-                                description="Skip cameras whose photo size differs from the most common one")
+    skip_odd_size: BoolProperty(name="Skip Mismatched Photos", default=True,
+                                description="Skip cameras whose photo does not fit their own sensor "
+                                            "(each lens is checked separately, so mixed lenses are kept)")
     set_resolution: BoolProperty(name="Set Render Resolution", default=True)
     bg_alpha: FloatProperty(name="Background Opacity", default=0.6, min=0, max=1)
     bg_depth: EnumProperty(name="Background Depth", items=[("BACK", "Back", ""), ("FRONT", "Front", "")],
@@ -74,7 +75,12 @@ class LIVINGLACQUER_OT_MetashapeImport(bpy.types.Operator, ImportHelper):
         labels = [c["label"] for c in cams]
         img_dir = bpy.path.abspath(self.image_dir) if self.image_dir else guess_image_dir(xml_path, labels)
         self.images = index_images(img_dir)
-        out_dir = bpy.path.abspath(self.output_dir) if self.output_dir else img_dir.rstrip("\\/") + "_undistorted"
+        if self.output_dir:
+            out_dir = bpy.path.abspath(self.output_dir)
+        elif os.path.basename(os.path.dirname(xml_path)) == "01.CAM_Photos":
+            out_dir = os.path.dirname(xml_path)     # scan folder: undistorted photos sit next to the XML
+        else:
+            out_dir = img_dir.rstrip("\\/") + "_undistorted"
         self.out_dir = out_dir
 
         sizes = {}
@@ -87,10 +93,10 @@ class LIVINGLACQUER_OT_MetashapeImport(bpy.types.Operator, ImportHelper):
         self.queue, self.skipped = [], []
         for c in cams:
             cal = self.sensors[c["sensor"]]
-            if self.skip_odd_size and (cal["w"], cal["h"]) != self.main_size:
-                self.skipped.append(c["label"] + " (different photo size)")
-            elif c["label"] not in self.images:
+            if c["label"] not in self.images:
                 self.skipped.append(c["label"] + " (photo not found)")
+            elif self.skip_odd_size and not size_matches(read_image_size(self.images[c["label"]]), cal):
+                self.skipped.append(c["label"] + " (photo size does not fit its sensor)")
             else:
                 self.queue.append(c)
         if self.limit:

@@ -1,5 +1,5 @@
 import bpy
-from bpy.props import BoolProperty, EnumProperty, FloatProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 
 
 class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
@@ -20,7 +20,7 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
     addon_version: StringProperty(
         name="Version",
         description="Current addon version",
-        default="0.0.2"
+        default="0.2.0"
     )
 
     # metashape: collection the sidebar steps through, and the background photo look
@@ -40,6 +40,34 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
                ("FRONT", "Front", "Draw the photo over the scene")],
         default="FRONT"
     )
+
+    # scan pipeline: engine for step 4 (also written to livinglacquer.json), panel toggles
+    pipe_engine: EnumProperty(
+        name="Engine",
+        items=[("AGISOFT", "Agisoft", "Metashape Standard does everything, Blender prepares and collects"),
+               ("HYBRID", "Hybrid", "Agisoft aligns the cameras, OpenMVS builds mesh and texture"),
+               ("OPENSOURCE", "Open Source", "COLMAP + OpenMVS, fully automatic")],
+        default="AGISOFT"
+    )
+    pipe_preset: EnumProperty(
+        name="Quality", description="Engine quality (Open Source / Hybrid)",
+        items=[("FAST", "Fast", "Quarter-resolution depth maps, no mesh refinement"),
+               ("NORMAL", "Normal", "Half-resolution depth maps, refined mesh"),
+               ("HIGH", "High", "Full-resolution depth maps and texture (slow)")],
+        default="NORMAL"
+    )
+    pipe_show_guide: BoolProperty(name="How to work in Agisoft", default=False)
+    pipe_out_format: EnumProperty(
+        name="Format", description="File format of converted and undistorted photos",
+        items=[("JPG", "JPG", ""), ("PNG", "PNG", ""), ("TIF", "TIFF", "")],
+        default="JPG"
+    )
+    pipe_quality: IntProperty(name="Quality", description="JPG quality", default=95, min=50, max=100)
+    pipe_overwrite: BoolProperty(name="Overwrite", default=False,
+                                 description="Undistort again even when the photo already exists")
+    pipe_show_gear: BoolProperty(name="Advanced", description="Show the advanced options", default=False)
+    pipe_show_report: BoolProperty(name="Details", description="Show every line of the Check Links report",
+                                   default=False)
 
 
 def register():

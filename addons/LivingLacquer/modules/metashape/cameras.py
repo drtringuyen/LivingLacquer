@@ -15,6 +15,20 @@ def get_collection(scene, name):
     return col
 
 
+def set_background(cd, bg_path, alpha, depth, relative=False):
+    """Replace the camera's background with the photo at bg_path (none when it does not exist)."""
+    cd.background_images.clear()
+    if bg_path and os.path.exists(bg_path):
+        cd.show_background_images = True
+        bg = cd.background_images.new()
+        bg.image = bpy.data.images.load(bg_path, check_existing=True)
+        if relative and bpy.data.filepath:
+            bg.image.filepath = bpy.path.relpath(bg_path)
+        bg.frame_method = "FIT"
+        bg.alpha = alpha
+        bg.display_depth = depth
+
+
 def build_camera(cam, cal, bg_path, col, opts):
     """Create or update the camera named after the Metashape label, with its photo as background."""
     label = cam["label"]
@@ -32,14 +46,7 @@ def build_camera(cam, cal, bg_path, col, opts):
     cd.clip_end = opts["clip_end"]
     cd.display_size = opts["display_size"]
 
-    cd.background_images.clear()
-    if bg_path and os.path.exists(bg_path):
-        cd.show_background_images = True
-        bg = cd.background_images.new()
-        bg.image = bpy.data.images.load(bg_path, check_existing=True)
-        bg.frame_method = "FIT"
-        bg.alpha = opts["bg_alpha"]
-        bg.display_depth = opts["bg_depth"]
+    set_background(cd, bg_path, opts["bg_alpha"], opts["bg_depth"], opts.get("relative", False))
 
     ob = bpy.data.objects.get(label)
     if ob is None or ob.type != "CAMERA":
@@ -51,7 +58,7 @@ def build_camera(cam, cal, bg_path, col, opts):
     # Metashape camera: X right, Y down, Z forward  ->  Blender camera: X right, Y up, -Z forward
     ob.matrix_world = cam["matrix"] @ Matrix.Diagonal((1, -1, -1, 1))
     ob["metashape_res"] = [w, h]
-    ob["metashape_photo"] = bg_path or ""
+    ob["metashape_photo"] = (bpy.path.relpath(bg_path) if bg_path and opts.get("relative") else bg_path) or ""
     return ob
 
 

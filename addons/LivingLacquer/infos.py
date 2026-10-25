@@ -115,6 +115,61 @@ class LIVINGLACQUER_OT_ToggleMetashape(bpy.types.Operator):
         module_manager.toggle("metashape")
         return {'FINISHED'}
 
+
+class LIVINGLACQUER_OT_ToggleProject(bpy.types.Operator):
+    """Toggle Project module (Scan Pipeline panel, step 1) on/off"""
+    bl_idname = "livinglacquer.toggle_project"
+    bl_label = "Project"
+
+    def execute(self, context):
+        from . import module_manager
+        module_manager.toggle("project")
+        return {'FINISHED'}
+
+
+class LIVINGLACQUER_OT_ToggleLinker(bpy.types.Operator):
+    """Toggle Linker module (step 5, Check Links) on/off"""
+    bl_idname = "livinglacquer.toggle_linker"
+    bl_label = "Linker"
+
+    def execute(self, context):
+        from . import module_manager
+        module_manager.toggle("linker")
+        return {'FINISHED'}
+
+
+class LIVINGLACQUER_OT_ToggleScene(bpy.types.Operator):
+    """Toggle Scene module (steps 6-8: Build Scene, Undistort, Package) on/off"""
+    bl_idname = "livinglacquer.toggle_scene"
+    bl_label = "Scene"
+
+    def execute(self, context):
+        from . import module_manager
+        module_manager.toggle("scene")
+        return {'FINISHED'}
+
+
+class LIVINGLACQUER_OT_ToggleIngest(bpy.types.Operator):
+    """Toggle Ingest module (steps 2-3: iPhone receiver, Convert & Sort) on/off"""
+    bl_idname = "livinglacquer.toggle_ingest"
+    bl_label = "Ingest"
+
+    def execute(self, context):
+        from . import module_manager
+        module_manager.toggle("ingest")
+        return {'FINISHED'}
+
+
+class LIVINGLACQUER_OT_ToggleEngines(bpy.types.Operator):
+    """Toggle Engines module (step 4: Agisoft / Hybrid / Open Source) on/off"""
+    bl_idname = "livinglacquer.toggle_engines"
+    bl_label = "Engines"
+
+    def execute(self, context):
+        from . import module_manager
+        module_manager.toggle("engines")
+        return {'FINISHED'}
+
 def register():
     bpy.utils.register_class(LIVINGLACQUER_OT_Build)
     bpy.utils.register_class(LIVINGLACQUER_OT_Reload)
@@ -122,9 +177,19 @@ def register():
     bpy.utils.register_class(LIVINGLACQUER_OT_ToggleConsole)
     bpy.utils.register_class(LIVINGLACQUER_OT_ClearConsole)
     bpy.utils.register_class(LIVINGLACQUER_OT_ToggleMetashape)
+    bpy.utils.register_class(LIVINGLACQUER_OT_ToggleProject)
+    bpy.utils.register_class(LIVINGLACQUER_OT_ToggleLinker)
+    bpy.utils.register_class(LIVINGLACQUER_OT_ToggleScene)
+    bpy.utils.register_class(LIVINGLACQUER_OT_ToggleIngest)
+    bpy.utils.register_class(LIVINGLACQUER_OT_ToggleEngines)
 
 
 def unregister():
+    bpy.utils.unregister_class(LIVINGLACQUER_OT_ToggleEngines)
+    bpy.utils.unregister_class(LIVINGLACQUER_OT_ToggleIngest)
+    bpy.utils.unregister_class(LIVINGLACQUER_OT_ToggleScene)
+    bpy.utils.unregister_class(LIVINGLACQUER_OT_ToggleLinker)
+    bpy.utils.unregister_class(LIVINGLACQUER_OT_ToggleProject)
     bpy.utils.unregister_class(LIVINGLACQUER_OT_ToggleMetashape)
     bpy.utils.unregister_class(LIVINGLACQUER_OT_ClearConsole)
     bpy.utils.unregister_class(LIVINGLACQUER_OT_ToggleConsole)

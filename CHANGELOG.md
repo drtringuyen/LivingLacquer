@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.0 (2026-10-25)
+
+Scan pipeline steps 2-8 (plan phases 2-6). Details per step in docs/HANDOFF.md §6.
+
+- **Step 2 Receive** (ingest): local-network server with a random token and QR code; Safari upload page and iOS Shortcut POST; photos land in `zz.Originals`; Convert & Sort starts once uploads stop. Eye button: watch the photo folders instead (USB / Drive).
+- **Step 3 Convert & Sort** (ingest): JPG wins, HEIC / RAW / PNG without a JPG are converted in a background process (EXIF + ICC kept, rotation baked); originals, IMG_E edits, videos and Drive duplicates move to `zz.Originals`. "Install converters" pip-installs pillow / pillow-heif (rawpy, segno on demand) into Blender's user scripts.
+- **Step 4 Reconstruct** (engines): Agisoft = open Metashape + guide with copy buttons + export watcher; Hybrid = Agisoft cameras -> OpenMVS by itself; Open Source = COLMAP (one camera per lens, levelled) + OpenMVS, no clicks. Heavy files stay in a local work folder; results are published automatically. Fast / Normal / High presets.
+- **Step 6 Build Scene** (scene): model import with automatic axis fix (tries X rotations, keeps the one where the mesh projects into the photos), textures by naming rule (pages, normal, AO), cameras from the XML into `Cameras_<Object>`, Alembic cameras removed, everything updated in place.
+- **Step 7 Undistort & BG** (scene): only missing or stale photos (calibration fingerprint per lens), modal with Esc, runs after Build.
+- **Step 8 Package** (scene): publishes the newest engine result with the standard names; files of another engine are moved to `zz.Replaced\<date>` instead of being deleted; marker + relative paths.
+- **Background jobs** (project): one at a time, progress bar + Cancel in the panel, Show Log. **Local cache** in ⚙: Pull to Local / Push to Drive with check-out in livinglacquer.json. ⚙ also holds the tool paths, work folder, photo format and engine quality.
+- Check Links knows COLMAP's pinhole cameras (checks the undistorted photos against them).
+- Tested headless in Blender 5.2.2 on scratch copies: Build on the Teapot ABC (axis -90, 86 % alignment, 8 photos undistorted incl. ultra-wide, re-run idempotent); Convert & Sort (HEIC, PNG, duplicates, edits, video, received JPG; re-run idempotent); receiver (page, upload, bad token 403, non-photo 415); Open Source on 20 photos (82 s Fast, 20 cameras, 100 % alignment); Hybrid on 8 photos (26 s, 99 %, Agisoft files set aside); export watcher; Pull / Push; panel draw for all engines; unregister. Not tested: anything in the Blender UI (timers, modal, QR display, Metashape launch), an iPhone, a full 112-photo run.
+
+## 0.1.0 (2026-10-25)
+
+Scan pipeline, build phase 1 (docs/PLAN_scan_pipeline.md §9).
+
+- **Scan Pipeline** panel: engine switch (Agisoft / Hybrid / Open Source, stored in livinglacquer.json), ⚙ advanced box (objects folder, marker paths), steps 1-8; steps not built yet show greyed out.
+- **project** module, step 1: **New Object** picks the next free NN in the objects folder, creates `NN.<Object>\zz.Scan\...` (§2), writes `livinglacquer.json` and saves the current file as `NN.<Object>.blend` (relative paths). Names are made ASCII (`Bát Tràng teapot` → `Bat_Trang_teapot`). **Open Object** opens the .blend of an object folder; refuses when the current file has unsaved changes unless Discard is ticked. The objects folder is remembered in the add-on preferences.
+- **linker** module, step 5: **Check** reports the marker / Drive folder, old folder names, missing scan folders, conflict copies, Agisoft lock, long / non-ASCII paths, photos (formats, duplicate names, iPhone extras), camera XML (chunks, components, unaligned cameras, loose name matches, cameras without photo, photos not in the XML, lenses, photo size per sensor, rotated photos, undistorted coverage and size), model and textures, and every file path in the .blend (missing, external, absolute). **Fix…** (with a confirm list) renames old folders, creates missing ones, relinks missing files found in the object folder (camera photos prefer 01.CAM_Photos, lost textures map to `OBJ_<Object>.jpg`), copies external files in, makes paths relative and writes the marker.
+- **metashape**: the odd-size skip is now per sensor (photo vs its own sensor, same aspect accepted), so mixed-lens shoots keep every camera (Teapot: 52 instead of 40). An XML in `01.CAM_Photos` takes its photos from `zz.Source_Photos` and undistorts next to the XML.
+- Checked headless in Blender 5.2.2: Check on both samples (Teapot 1 relink, Wajima 107 relinks, all resolve relative, in memory only); Teapot import gives 52 cameras (40 main + 12 ultra-wide); New Object + Fix on a scratch folder (renames `zz.scan` / `01.Agisoft`, pulls an external file, makes an absolute path relative, writes the marker); panel draw code dry-run.
+
 ## 0.0.2 (2026-10-24)
 
 - **Sidebar tab**: drop-in `sidebar_tab.py` (same file as MeshBuildTimelapse / MultiCamProject). With Debug on, the Infos panel shows **Tab name** with reset and up / down; the Infos header shows "Infos (LivingLacquer)". Name and order live in the shared `<Blender config>/sidebar_tabs.json`.

@@ -2,6 +2,9 @@
 
 ## 0. Where we are
 
+- 0.2.0: scan pipeline steps 1-8 all built (phases 2-6 of the plan). Tested headless only (Blender 5.2.2 background + scratch copies of the Teapot); the user tests the UI. See §6 for how each step works and what is left.
+- 0.1.0: scan pipeline phase 1 (Object + Check Links + per-sensor size fix).
+
 - 0.0.2: sidebar tab feature (drop-in `sidebar_tab.py`, checked live).
 - 0.0.1: scaffold + **metashape** module (ported from `Metashape Camera Importer` 0.1.0, behavior unchanged).
 - Smoke-tested in Blender 5.2.2 on 2026-10-24 with a synthetic 2-camera export: add-on enables, all panels / operators / File > Import entry register, import + undistort + Look Through / Step / Apply to All work, module toggle off/on works, unaligned cameras are skipped.
@@ -17,14 +20,19 @@ LivingLacquer collects the tools used to model and texture scanned lacquerware i
 
 | Module | Status | What it does |
 |---|---|---|
-| metashape | 0.0.1 | Metashape XML cameras -> Blender cameras with undistorted background photos |
+| project | 0.2.0 | Scan Pipeline panel, step 1 New / Open Object, livinglacquer.json, folder rules (`paths.py`), background jobs (`jobs.py`), local cache Pull / Push (`cache.py`), add-on preferences (tool paths, work folder) |
+| ingest | 0.2.0 | Step 2 iPhone receiver (`receiver.py`, watch folder) and step 3 Convert & Sort (`convert.py` plan, `worker.py` subprocess, `deps.py` pip installer) |
+| engines | 0.2.0 | Step 4: Agisoft guide / launcher / export watcher (`agisoft.py`), Open Source + Hybrid jobs (`pipelines.py`), COLMAP -> Agisoft XML (`colmap_xml.py`), tool paths (`tools.py`) |
+| linker | 0.1.0 | Step 5 Check Links: folder / photo / XML checks (`checks.py`), .blend paths + fixes (`blendpaths.py`) |
+| scene | 0.2.0 | Steps 6-8: model import + axis fix + alignment check + textures (`model.py`), cameras, undistort, publish (`build.py`) |
+| metashape | 0.0.1 | Metashape XML cameras -> Blender cameras with undistorted background photos (per-sensor size check since 0.1.0) |
 
 ## 3. metashape notes
 
 - Coordinates: the OBJ must be imported Forward = Y, Up = Z. The chunk transform (rotation, translation, scale) is applied to every camera.
 - Camera model: sensor width fixed at 36 mm, `lens = f * 36 / max(w, h)`, `shift = (-cx, cy) / max(w, h)`. The undistorted photo keeps f / cx / cy, so it lines up with the pinhole camera.
 - Undistortion: Brown model (k1-k4, p1, p2, b1, b2) remapped with numpy in 256-row strips, bilinear sampling, black outside the source.
-- Odd-size photos (different from the most common size) are skipped by default.
+- Photos that do not fit their own sensor (other aspect, rotated) are skipped by default; each lens is checked separately, so mixed-lens shoots keep all cameras.
 - Camera objects keep `metashape_res` and `metashape_photo` custom properties.
 
 ## 4. Live test checklist (metashape)
@@ -43,3 +51,15 @@ LivingLacquer collects the tools used to model and texture scanned lacquerware i
 
 Ideas only, to be decided:
 - More modeling / texture modules for the lacquer workflow (projection painting from the camera photos, cleanup of scan meshes).
+
+## 6. Scan pipeline notes (0.2.0)
+
+- **Panel:** LivingLacquer › Scan Pipeline. Each step is drawn by the module that owns it (`project/ui.py` STEPS). One background job at a time (`project/jobs.py`): progress bar + Cancel at the top of the panel, "Show Log" writes the log into the text block "LivingLacquer Log". Engine logs also land in `zz.Scan\zz.COLMAP_OMVS\logs`.
+- **Step 2:** `receiver.py` serves on 0.0.0.0, first free port from 8765, random token in the URL (403 without it), photos only (415), 300 MB cap, writes to `zz.Originals` through a temp file. QR code needs segno (Install button). Windows asks once to allow Blender through the firewall. iOS Shortcut: Get Contents of URL, POST, `http://<pc>:<port>/upload?t=<token>&name=<file>`, body = file. Convert & Sort starts 8 s after the last upload. The eye button watches the photo folders instead.
+- **Step 3:** pillow / pillow-heif / rawpy / segno are pip-installed into Blender's user `scripts\modules`. Conversion runs in `worker.py` with Blender's Python (process pool). Rule: a JPG of the photo wins; HEIC / RAW / PNG without one are converted (EXIF rotation baked, EXIF + ICC kept, q95, 4:4:4); originals, IMG_E edits, videos and Drive duplicates go to `zz.Originals`; received JPGs move from `zz.Originals` up to `zz.Source_Photos`.
+- **Step 4:** Agisoft = Open Metashape (photo folder on the clipboard), the guide with copy buttons, and a watcher that waits until CAM xml + model + texture exist and stop growing. The Batch Process job file from the plan is NOT written (its format still needs checking in Metashape Standard). Hybrid = Agisoft only aligns + exports cameras; the XML is copied with absolute photo paths as labels (InterfaceMetashape reads photos from the labels), then Densify / Mesh / Refine / Texture. Open Source = photos copied locally into one folder per photo size (one COLMAP camera per lens), feature_extractor (OPENCV) / exhaustive_matcher / mapper / largest model / model_orientation_aligner / image_undistorter / model_converter TXT -> `CAM_<Object>.xml` (pinhole) / InterfaceCOLMAP / OpenMVS. Work folder: `%LOCALAPPDATA%\LivingLacquer\work\<object>_<id>\<engine>` (depth maps ~36 MB per photo stay off Drive). Result + `engine_result.json` -> `zz.COLMAP_OMVS\result`, then published automatically.
+- **Step 6:** Alembic from Metashape is Z-up but Blender's importer turns it as Y-up, so ABC starts at X -90 deg; Build tries X 0 / -90 / +90 / 180 and keeps the rotation where most mesh vertices project inside 9 sample photos (Teapot: -90, 86 %). Cameras that come with the ABC are deleted (XML wins). `OBJ_<Object>` is replaced on every Build; materials `MAT_<Object>[_n]` are linked to the object. Cameras go to `Cameras_<Object>` and are updated by name; cameras no longer in the XML are removed.
+- **Step 7:** undistorts only missing photos, or all of a lens whose calibration fingerprint changed (stored per sensor in livinglacquer.json). Skipped when the published photos are already undistorted (COLMAP).
+- **Step 8:** copies the newest `engine_result.json` result into `01.CAM_Photos` / `02.Geometry` with the standard names (only changed files), rewrites the OpenMVS .mtl, records `published` in the marker, makes the .blend paths relative. With Agisoft exports there is nothing to copy.
+- **Local cache (⚙):** Pull mirrors the object folder into `<work folder>\cache\` with robocopy and marks it checked out on Drive; Push copies newer files back (marker merged by hand) and releases it. COLMAP's dense folder is never copied.
+- **Not done from the plan:** manual path slots in ⚙ (auto-detect only), "Exclude ultra-wide from texturing", the Metashape Batch Process file, the A1 confirm dialog (loose matches are only reported), MulticamProject reading the marker.

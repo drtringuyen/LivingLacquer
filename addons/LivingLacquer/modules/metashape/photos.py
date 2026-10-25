@@ -19,9 +19,53 @@ def index_images(folder):
     return out
 
 
+def read_image_size(path):
+    """(w, h) as stored in a JPEG / PNG file, read from its header only; None if unknown.
+    EXIF rotation is not applied (Metashape uses the stored pixels too)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+            if head[:8] == b"\x89PNG\r\n\x1a\n":
+                return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+            if head[:2] != b"\xff\xd8":
+                return None
+            f.seek(2)
+            while True:
+                b = f.read(1)
+                while b and b != b"\xff":
+                    b = f.read(1)
+                while b == b"\xff":
+                    b = f.read(1)
+                if not b:
+                    return None
+                marker = b[0]
+                if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+                    continue
+                n = int.from_bytes(f.read(2), "big")
+                if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    seg = f.read(5)
+                    return int.from_bytes(seg[3:5], "big"), int.from_bytes(seg[1:3], "big")
+                f.seek(n - 2, 1)
+    except (OSError, ValueError):
+        return None
+
+
+def size_matches(photo_size, cal):
+    """Photo fits its own sensor: same size, or same aspect (the calibration is scaled)."""
+    if not photo_size:
+        return True                 # unreadable header: let the import try
+    w, h = photo_size
+    return (w, h) == (cal["w"], cal["h"]) or abs(w * cal["h"] - h * cal["w"]) <= max(w, h) // 500
+
+
 def guess_image_dir(xml_path, labels):
-    """The XML's folder or a subfolder of it that holds photos named like the cameras."""
+    """The XML's folder or a subfolder of it that holds photos named like the cameras.
+    In a scan folder (01.CAM_Photos next to zz.Source_Photos) the source photos win, since
+    01.CAM_Photos holds the undistorted copies."""
     base = os.path.dirname(xml_path)
+    src = os.path.join(os.path.dirname(base), "zz.Source_Photos")
+    if os.path.basename(base) == "01.CAM_Photos" and os.path.isdir(src):
+        return src
     want = set(labels[:5])
     candidates = [base] + [os.path.join(base, d) for d in sorted(os.listdir(base))
                            if os.path.isdir(os.path.join(base, d)) and not d.endswith("_undistorted")]
