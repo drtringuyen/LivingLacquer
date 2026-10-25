@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4 (2026-10-25)
+
+- The 1.7 m person always stands on the floor (Z = 0), beside the scan.
+- **Pivot at World Origin** toggle (next to Scale): Pivot Point = 3D Cursor with the cursor held at (0, 0, 0) while it is on; off gives back your own pivot and cursor.
+- **Build frames the scan:** every 3D Viewport is centered on the scan mesh after Build (also on files built before 0.2.2).
+- Checked live in Blender 5.2.2: toggle on / off restores Median Point and the cursor, framing centers the Teapot, the person stands at Z = 0.
+
 ## 0.2.3 (2026-10-25)
 
 - **Auto Level & Center:** on the first Build the scan is stood upright and centered on the world origin by itself. Up comes from the circle of cameras (the normal of the plane they lie on), the center from the mesh's vertices; nothing is copied from a previous object. Only the `Transform` empty moves; a Transform the user has changed is left alone on later Builds. Button to redo it.

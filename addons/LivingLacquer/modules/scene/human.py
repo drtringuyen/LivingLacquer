@@ -1,6 +1,6 @@
 """A 1.7 m person drawn in the 3D Viewport (GPU overlay, not an object) next to the scan, so the user
 can see how big to scale the Transform empty. Two crossed silhouettes, so it reads from any side; it
-stands on the scan's lowest point, just beside it. Respects the scene's Unit Scale."""
+stands on the floor (Z = 0), just beside the scan. Respects the scene's Unit Scale."""
 import bpy
 import blf
 import gpu
@@ -30,7 +30,7 @@ _handles = []
 _samples = {}          # mesh name -> (mesh data pointer, (n, 4) local points): read once per mesh
 
 
-def _world_box(meshes):
+def world_box(meshes):
     """World min / max of the mesh vertices (a rotated object's bound_box is too big). The vertex sample
     is read once per mesh; each redraw only multiplies it by the matrix, so scaling stays smooth."""
     pts = []
@@ -52,8 +52,8 @@ def _placement(context):
     meshes = [o for o in (rig.children if rig else []) if o.type == "MESH" and o.visible_get()]
     if not meshes:
         return Vector((h * 0.4, 0, 0)), h
-    lo, hi = _world_box(meshes)
-    return Vector((float(hi[0]) + h * 0.3, float(lo[1] + hi[1]) / 2, float(lo[2]))), h
+    lo, hi = world_box(meshes)
+    return Vector((float(hi[0]) + h * 0.3, float(lo[1] + hi[1]) / 2, 0.0)), h      # feet on the floor (Z = 0)
 
 
 def _shown(context):

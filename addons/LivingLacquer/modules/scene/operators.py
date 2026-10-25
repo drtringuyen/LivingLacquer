@@ -6,7 +6,7 @@ import bpy
 
 from ..metashape.photos import undistort_image
 from ..project import jobs, paths, state
-from . import build, level
+from . import build, level, view
 
 # last result line per step, for the panel
 STATUS = {"build": "", "undistort": "", "package": "", "blend": None}
@@ -133,6 +133,8 @@ class LIVINGLACQUER_OT_PipeBuildScene(_PipeOp, bpy.types.Operator):
 
         def scene_step(job):
             job.data["lines"] = yield from build.build_scene(root)
+            if not bpy.app.background:
+                view.frame_scan()           # the scan in the middle of every 3D view, not the empty grid
             for line in job.data["lines"]:
                 print("LivingLacquer Build Scene:", line)
             _status("build", " · ".join(l for l in job.data["lines"] if not l.startswith("Textures")))

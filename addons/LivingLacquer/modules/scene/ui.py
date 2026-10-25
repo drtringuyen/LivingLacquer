@@ -11,6 +11,7 @@ def draw_step(number, layout, context):
         row = layout.row(align=True)
         row.operator("livinglacquer.pipe_auto_level", text="Auto Level & Center", icon="ORIENTATION_GLOBAL")
         row.operator("livinglacquer.pipe_scale", text="Scale", icon="FULLSCREEN_ENTER")
+        row.prop(props, "pipe_pivot_origin", text="", icon="PIVOT_CURSOR", toggle=True)
         line = operators.status("build")
     elif number == 7:
         row = layout.row(align=True)
