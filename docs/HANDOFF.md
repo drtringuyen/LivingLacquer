@@ -6,6 +6,7 @@
 - 0.0.1: scaffold + **metashape** module (ported from `Metashape Camera Importer` 0.1.0, behavior unchanged).
 - Smoke-tested in Blender 5.2.2 on 2026-10-24 with a synthetic 2-camera export: add-on enables, all panels / operators / File > Import entry register, import + undistort + Look Through / Step / Apply to All work, module toggle off/on works, unaligned cameras are skipped.
 - Next: run the checklist below on a real Metashape export of a lacquer piece (alignment with the OBJ is the key unknown).
+- Scan pipeline (target 0.1.x) agreed 2026-10-25: design in [PLAN_scan_pipeline.md](PLAN_scan_pipeline.md), session handoff (sample state, per-sensor size bug, build order) in [HANDOFF_scan_pipeline.md](HANDOFF_scan_pipeline.md).
 - No GitHub remote yet.
 
 ## 1. Purpose
@@ -37,6 +38,8 @@ LivingLacquer collects the tools used to model and texture scanned lacquerware i
 - [ ] Re-import with Overwrite off reuses the undistorted photos.
 
 ## 5. Roadmap
+
+- Scan pipeline (numbered steps, Agisoft / Hybrid / Open Source engines): see [PLAN_scan_pipeline.md](PLAN_scan_pipeline.md) §9 for the build phases.
 
 Ideas only, to be decided:
 - More modeling / texture modules for the lacquer workflow (projection painting from the camera photos, cleanup of scan meshes).
