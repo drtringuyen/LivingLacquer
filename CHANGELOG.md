@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.6 (2026-10-26)
+
+- **A replaced photo is noticed:** Undistort records each source photo's size and date in livinglacquer.json. When a photo in zz.Source_Photos changes under the same name, its camera photo is made again by the next Undistort / Build, step 4 turns red ("N photo(s) replaced") and Check Links lists it. The first run after this update takes the current photos as the starting point (nothing is redone).
+- Checked on a scratch Teapot: baseline -> photo swapped (detected, only that one redone) -> original put back (detected again, redone).
+
+## 0.3.5 (2026-10-26)
+
+- **Fix: saving the .blend turned step 3 red.** Check Links was counted as out of date whenever any file was newer than the check, the .blend included; now only new exports (cameras / model) make it stale.
+- **Fix: Undistort redid all 52 photos every time.** The ↻ next to it was a sticky "Overwrite" switch (left on in the Teapot file). It is now a one-shot **Redo All** with a confirmation; normal Undistort / Build only make the missing or stale photos.
+- **Camera photos show after Build:** only the first Build (the one that levels the scan) switches on "Work on the Transform" and starts scaling; every later Build ends looking through the first camera with its photo visible.
+- Checked in a separate Blender window: re-Build with the toggle on -> toggle off, camera view IMG_3234 with its photo, 0 photos redone.
+
 ## 0.3.4 (2026-10-25)
 
 - **Step 3 no longer stays red when the cameras were exported after the model** in a scene built before 0.3.1: the add-on now measures from the built scene how well the mesh lines up with the cameras (`scene.model.scene_alignment`, cached) instead of asking for another Build. Check Links' C17 uses the same measurement: "Cameras exported after the model, and they line up (86 %)" is OK; only a real mismatch stays a warning.

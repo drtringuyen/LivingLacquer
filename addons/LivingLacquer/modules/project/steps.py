@@ -108,7 +108,7 @@ def compute_stages(root):
         out[5] = (TODO, "not checked yet")
     elif chk.get("errors"):
         out[5] = (STALE, f"{chk['errors']} error(s) in Check Links")
-    elif chk.get("time", 0) + 1 < max(t_xml, t_model, _mtime(bpy.data.filepath) if not bpy.data.is_dirty else 0):
+    elif chk.get("time", 0) + 1 < max(t_xml, t_model):     # new exports since the check (saving the .blend is not)
         out[5] = (STALE, "files changed since the check")
     else:
         out[5] = (DONE, f"{chk.get('warnings', 0)} warning(s)")
@@ -138,8 +138,21 @@ def compute_stages(root):
                                                      for s, c in sensors.items())
         except Exception:
             pass
+        changed = []                                  # source photos replaced since their camera photo
+        sigs = m.get("photo_signatures") or {}
+        if sigs and found["source"]:
+            try:
+                from ..linker.checks import index_photos, pick_jpg
+                from ..scene.build import photo_changed
+                src = index_photos(found["source"], skip=(paths.ORIGINALS,))
+                changed = [c.name for c in cams if c.name in src and photo_changed(sigs.get(c.name),
+                                                                                     pick_jpg(src[c.name]))]
+            except Exception:
+                changed = []
         if stale:
             out[7] = (STALE, "calibration changed: undistort again")
+        elif changed:
+            out[7] = (STALE, f"{len(changed)} photo(s) replaced: undistort again")
         elif have == len(cams):
             out[7] = (DONE, f"{have} backgrounds")
         else:

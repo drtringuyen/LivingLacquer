@@ -282,6 +282,13 @@ def _check_cameras(root, found, src, items):
     if bad:
         items.append(item("C14", ERROR, f"{len(bad)} undistorted photo(s) have another size than the sensor "
                           "(stale, re-undistort)", bad))
+    sigs = (marker.read(root) or {}).get("photo_signatures") or {}
+    if sigs and not pinhole:                          # source photo replaced since its camera photo was made
+        from ..scene.build import photo_changed
+        replaced = [c["label"] for c in have if c.get("photo") and photo_changed(sigs.get(c["label"]), c["photo"])]
+        if replaced:
+            items.append(item("C14", WARN, f"{len(replaced)} source photo(s) replaced since their camera photo "
+                              "was made: step 4 (Undistort) makes them again", replaced))
     if len(have) < len(aligned):
         items.append(item("C14", INFO, f"{len(have)} of {len(aligned)} cameras have an undistorted photo; "
                           "step 4 (Undistort) makes the rest"))

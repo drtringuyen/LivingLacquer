@@ -5,7 +5,7 @@ import os
 import bpy
 
 from ..metashape.photos import undistort_image
-from ..project import jobs, paths, state
+from ..project import jobs, marker, paths, state
 from . import build, level, view
 
 # last result line per step, for the panel
@@ -24,6 +24,7 @@ def status(key):
 def undistort_steps(root, overwrite, ext, quality):
     """Step 7 as job steps: undistort what is missing / stale, set every camera background."""
     data = {"done": 0, "failed": 0}
+    sigs = {}           # camera -> signature of the source photo its camera photo was made from
 
     def run(job):
         queue, prints = build.undistort_queue(root, overwrite, ext)
@@ -41,18 +42,38 @@ def undistort_steps(root, overwrite, ext, quality):
                     data["failed"] += 1
                     job.log(f"{name}: {e}")
                     continue
+            if photo is not None and os.path.exists(out):
+                try:
+                    sigs[name] = build.photo_signature(photo)
+                except OSError:
+                    pass
             build.set_camera_background(name, out)
-        if not data["failed"]:
-            build.save_fingerprints(root, prints)
+        build.save_fingerprints(root, prints if not data["failed"] else
+                                (marker.read(root) or {}).get("calibration_fingerprint") or {}, sigs)
         _status("undistort", f"Undistort: {data['done']} photo(s) made"
                 + (f", {data['failed']} failed" if data["failed"] else ""))
 
     return [jobs.Step("Undistort & backgrounds", run, weight=10)]
 
 
-def _undistort_args(context):
+def _undistort_args(context, redo_all=False):
+    """(overwrite, extension, quality). Overwrite only for an explicit "redo all" (never a sticky switch)."""
     props = context.scene.livinglacquer_props
-    return props.pipe_overwrite, build.EXT[props.pipe_out_format], props.pipe_quality
+    return redo_all, build.EXT[props.pipe_out_format], props.pipe_quality
+
+
+def show_first_camera():
+    """Look through the first scan camera with its photo showing (after a re-Build)."""
+    from ..metashape.cameras import set_view_camera
+    rig = bpy.data.objects.get(build.TRANSFORM)
+    cams = sorted((o for o in (rig.children if rig else []) if o.type == "CAMERA"), key=lambda o: o.name)
+    if not cams:
+        return
+    props = bpy.context.scene.livinglacquer_props
+    if props.pipe_pivot_origin:
+        props.pipe_pivot_origin = False                 # it hides the cameras, and with them the photos
+    with jobs.ui_override():
+        set_view_camera(bpy.context, cams[0])
 
 
 def start_scaling():
@@ -115,9 +136,11 @@ class LIVINGLACQUER_OT_PipeBuildScene(_PipeOp, bpy.types.Operator):
 
         def scene_step(job):
             job.data["lines"] = yield from build.build_scene(root)
+            job.data["levelled"] = any(l.startswith("Auto Level") for l in job.data["lines"])
             if not bpy.app.background:
                 view.frame_scan()           # the scan in the middle of every 3D view, not the empty grid
-            bpy.context.scene.livinglacquer_props.pipe_pivot_origin = True     # scale / rotate about the origin
+            if job.data["levelled"]:        # first Build: scale / rotate the scan about the origin
+                bpy.context.scene.livinglacquer_props.pipe_pivot_origin = True
             for line in job.data["lines"]:
                 print("LivingLacquer Build Scene:", line)
             _status("build", " · ".join(l for l in job.data["lines"] if not l.startswith("Textures")))
@@ -125,8 +148,12 @@ class LIVINGLACQUER_OT_PipeBuildScene(_PipeOp, bpy.types.Operator):
         def done(job):
             if job.state != "done":
                 _status("build", f"Build Scene: {job.error or job.state}")
-            elif any(l.startswith("Auto Level") for l in job.data.get("lines", [])) and not bpy.app.background:
+            elif bpy.app.background:
+                pass
+            elif job.data.get("levelled"):
                 start_scaling()             # first Build: hand the size over to the user right away
+            else:
+                show_first_camera()         # later Builds: show the result, a camera with its photo
 
         steps = [jobs.Step("Build scene", scene_step, weight=3)] + undistort_steps(root, *_undistort_args(context))
         jobs.run_or_start(jobs.Job("Build Scene", steps, on_done=done))
@@ -140,9 +167,20 @@ class LIVINGLACQUER_OT_PipeUndistort(_PipeOp, bpy.types.Operator):
     bl_label = "Undistort & Backgrounds"
     bl_options = {"REGISTER"}
 
+    redo_all: bpy.props.BoolProperty(name="Redo All", default=False, options={"SKIP_SAVE"},
+                                     description="Undistort every photo again, also the ones already made")
+
+    def invoke(self, context, event):
+        if self.redo_all:
+            return context.window_manager.invoke_confirm(
+                self, event, title="Undistort every photo again?",
+                message="All camera photos are made again, also the ones already done (takes minutes)",
+                confirm_text="Redo All")
+        return self.execute(context)
+
     def execute(self, context):
         root = state.get()["root"]
-        jobs.run_or_start(jobs.Job("Undistort", undistort_steps(root, *_undistort_args(context))))
+        jobs.run_or_start(jobs.Job("Undistort", undistort_steps(root, *_undistort_args(context, self.redo_all))))
         return {"FINISHED"}
 
 

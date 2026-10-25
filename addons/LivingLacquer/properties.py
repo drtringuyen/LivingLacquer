@@ -54,7 +54,7 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
     addon_version: StringProperty(
         name="Version",
         description="Current addon version",
-        default="0.3.4"
+        default="0.3.6"
     )
 
     # metashape: collection the sidebar steps through, and the background photo look
@@ -104,8 +104,6 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
         default="JPG"
     )
     pipe_quality: IntProperty(name="Quality", description="JPG quality", default=95, min=50, max=100)
-    pipe_overwrite: BoolProperty(name="Overwrite", default=False,
-                                 description="Undistort again even when the photo already exists")
     pipe_show_human: BoolProperty(
         name="Size References", default=True,
         description="Draw a 1.7 m person, a 0.75 m table and a 0.30 m cat on the floor next to the scan, to judge how much to scale it",

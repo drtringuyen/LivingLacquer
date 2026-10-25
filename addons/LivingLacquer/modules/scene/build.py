@@ -202,9 +202,11 @@ def undistort_queue(root, overwrite=False, ext=".jpg"):
     old = m.get("calibration_fingerprint") or {}
     old = old if isinstance(old, dict) else {}
     done_already = published_undistorted(root)
+    sigs = m.get("photo_signatures") or {}
     q = []
     for c, cal, photo, out in jobs:
-        stale = old.get(c["sensor"]) not in (None, fingerprint(cal))
+        stale = old.get(c["sensor"]) not in (None, fingerprint(cal)) \
+            or (photo is not None and photo_changed(sigs.get(c["label"]), photo))   # photo replaced
         need = not done_already and photo is not None and (overwrite or stale or not os.path.exists(out))
         if need and not os.path.exists(out):
             out = os.path.splitext(out)[0] + ext
@@ -220,12 +222,34 @@ def set_camera_background(name, path):
         ob["metashape_photo"] = bpy.path.relpath(path) if bpy.data.filepath else path
 
 
-def save_fingerprints(root, prints):
+def save_fingerprints(root, prints, photo_sigs=None):
+    """Store the calibration fingerprints and (merged in) the source photos' signatures the camera
+    photos were made from."""
     m = marker.read(root)
     if m is None:
         m = marker.update(root)
     m["calibration_fingerprint"] = prints
+    if photo_sigs:
+        m["photo_signatures"] = dict(m.get("photo_signatures") or {}, **photo_sigs)
     marker.write(root, m)
+
+
+def photo_signature(path):
+    """[size, modified time in s] of a source photo: what its undistorted copy was made from."""
+    st = os.stat(path)
+    return [st.st_size, int(st.st_mtime)]
+
+
+def photo_changed(old, path):
+    """True when the photo at path is not the one recorded in old (another size, or a date more than
+    2 s off; Drive keeps dates, so small drifts are tolerated). No record yet: not changed."""
+    if not old:
+        return False
+    try:
+        size, mtime = photo_signature(path)
+    except OSError:
+        return False
+    return size != old[0] or abs(mtime - old[1]) > 2
 
 
 # ---- step 8: publish

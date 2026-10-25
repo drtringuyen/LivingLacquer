@@ -21,7 +21,7 @@ def draw_step(number, layout, context):
 
         row = big_row(layout)
         row.operator("livinglacquer.pipe_undistort", text="4. Undistort & Camera Photos", icon="IMAGE_BACKGROUND")
-        row.prop(props, "pipe_overwrite", text="", icon="FILE_REFRESH")
+        row.operator("livinglacquer.pipe_undistort", text="", icon="FILE_REFRESH").redo_all = True
         layout.label(text=operators.status("undistort") or "Runs by itself after Build")
         _draw_cameras(layout, context, props)
     else:
