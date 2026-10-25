@@ -4,7 +4,7 @@ import time
 import bpy
 
 from ..project import jobs, state
-from ..scene import build
+from ..scene import operators as scene_ops
 from . import agisoft, pipelines, tools
 
 STATUS = {"text": "", "watch": None, "watch_state": {}, "blend": None}
@@ -20,21 +20,17 @@ def status():
 
 
 def _published(job):
-    """on_done of the engine jobs: publish the result (step 8) so Build Scene sees it."""
+    """on_done of the engine jobs (their last steps published the result, step 8)."""
     if job.state != "done":
         _set(f"{job.name}: {job.error or job.state} (see Show Log)")
         return
-    root = state.get()["root"]
-    lines = build.publish(root)
-    state.refresh()
-    _set(f"{job.name} done · {lines[0]} · now press Build")
+    _set(f"{job.name} done · {job.data['publish'][0]} · now press Build")
 
 
 def _start(job):
-    if bpy.app.background:
-        jobs.run_blocking(job)
-    else:
-        jobs.start(job)
+    """Engine job + publishing (step 8) as its last steps, with the progress bar."""
+    job.steps += scene_ops.package_steps(state.get()["root"])
+    jobs.run_or_start(job)
 
 
 class LIVINGLACQUER_OT_PipeReconstruct(bpy.types.Operator):

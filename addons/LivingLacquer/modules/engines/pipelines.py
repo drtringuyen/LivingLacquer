@@ -98,9 +98,9 @@ def opensource_job(root, preset="NORMAL", on_done=None):
             os.makedirs(group, exist_ok=True)
             dst = os.path.join(group, os.path.basename(src))
             wanted.add(os.path.normcase(dst))
+            yield n / len(photos), os.path.basename(src)
             if not (os.path.exists(dst) and os.path.getsize(dst) == os.path.getsize(src)):
                 shutil.copy2(src, dst)
-            job.step_pct = 100.0 * (n + 1) / len(photos)
         for d, _dirs, files in os.walk(images):          # photos removed since the last run
             for f in files:
                 if os.path.normcase(os.path.join(d, f)) not in wanted:
@@ -136,9 +136,10 @@ def opensource_job(root, preset="NORMAL", on_done=None):
     def collect(job):
         flat = os.path.join(work, "undistorted")              # one folder, photo names = camera labels
         os.makedirs(flat, exist_ok=True)
-        for d, _dirs, files in os.walk(os.path.join(dense, "images")):
-            for f in files:
-                shutil.copy2(os.path.join(d, f), os.path.join(flat, f))
+        files = [(d, f) for d, _dirs, fs in os.walk(os.path.join(dense, "images")) for f in fs]
+        for n, (d, f) in enumerate(files):
+            yield 0.8 * n / max(len(files), 1), f
+            shutil.copy2(os.path.join(d, f), os.path.join(flat, f))
         job.data["result"] = _collect_result(root, work, "OPENSOURCE", job.data["xml"], True, flat)
 
     c = lambda *a: [colmap] + list(a)

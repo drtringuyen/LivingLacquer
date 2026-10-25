@@ -1,7 +1,11 @@
-"""Background jobs for the pipeline (steps 3, 4, dependency install): a chain of command-line steps and
-short Python steps, run one at a time while Blender stays responsive. A bpy timer polls the
-process, keeps the log, parses the progress and calls on_done on the main thread.
-One job runs at a time; Cancel kills the whole process tree."""
+"""Background jobs for the pipeline: every wait longer than a blink runs as a job, so the user always
+sees a progress bar (panel + status bar) and Blender never looks hung.
+
+A job is a chain of steps: command-line programs (polled, output parsed for % / [n/N]) and Python
+steps. A Python step may be a generator: it runs in slices of SLICE seconds on the main thread and
+yields its progress (0-1, or (0-1, "what it is doing")), so Blender redraws between slices.
+One job runs at a time; Cancel stops the generator / kills the whole process tree."""
+import inspect
 import os
 import queue
 import re
@@ -14,11 +18,13 @@ import bpy
 
 PERCENT = re.compile(r"(\d{1,3}(?:\.\d+)?)\s?%")
 FRACTION = re.compile(r"\[(\d+)\s*/\s*(\d+)\]")      # COLMAP: "Processed file [12/112]"
+SLICE = 0.1             # seconds of Python work per timer tick
 _job = None
 
 
 class Step:
-    """argv: a command (list) or a Python callable taking the job (runs on the main thread, keep it short)."""
+    """argv: a command (list), or a Python callable taking the job (main thread). A callable that
+    returns a generator runs in slices; each yield gives the progress of the step."""
 
     def __init__(self, label, argv, cwd=None, env=None, weight=1.0, ok_codes=(0,)):
         self.label, self.argv, self.cwd, self.env, self.weight, self.ok_codes = label, argv, cwd, env, weight, ok_codes
@@ -36,6 +42,9 @@ class Job:
         self.proc = None
         self._q = queue.Queue()
         self._log = None
+        self._call = None              # Python step waiting for the next tick
+        self._gen = None               # generator of the running Python step
+        self.detail = ""               # what the Python step is doing now
         self.data = {}                 # scratch space for the steps
 
     # -- progress
@@ -62,20 +71,14 @@ class Job:
     def _next(self):
         self.index += 1
         self.step_pct = 0.0
+        self.detail = ""
         if self.index >= len(self.steps):
             self._end("done")
             return
         st = self.steps[self.index]
         self.log(f"=== {st.label}")
         if callable(st.argv):
-            try:
-                st.argv(self)
-            except Exception as e:
-                self.error = f"{st.label}: {e}"
-                self.log("ERROR " + self.error)
-                self._end("failed")
-                return
-            self._next()
+            self._call = st             # runs on the next tick, after the panel shows the stage
             return
         # "{key}" arguments are filled from job.data, set by the steps before (e.g. the chosen model)
         argv = [str(a).format(**self.data) if str(a).startswith("{") else str(a) for a in st.argv]
@@ -99,10 +102,41 @@ class Job:
             self._q.put(line.rstrip("\r\n"))
         self._q.put(None)
 
+    def _python(self):
+        """Run the current Python step for at most SLICE seconds."""
+        st = self.steps[self.index]
+        t0 = time.time()
+        try:
+            if self._gen is None:
+                self._call = None
+                r = st.argv(self)
+                if not inspect.isgenerator(r):
+                    self._next()
+                    return self.state == "running"
+                self._gen = r
+            while time.time() - t0 < SLICE:
+                v = next(self._gen)
+                if isinstance(v, tuple):
+                    v, self.detail = v
+                if v is not None:
+                    self.step_pct = max(0.0, min(100.0, 100.0 * float(v)))
+        except StopIteration:
+            self._gen = None
+            self._next()
+        except Exception as e:
+            self._gen = None
+            self.error = f"{st.label}: {e}"
+            self.log("ERROR " + self.error)
+            self._end("failed")
+        return self.state == "running"
+
     def poll(self):
-        """Read new output; move on when the process ended. Returns True while running."""
+        """Advance the Python step, or read new output and move on when the process ended.
+        Returns True while running."""
         if self.state != "running":
             return False
+        if self._call is not None or self._gen is not None:
+            return self._python()
         if self.proc is None:
             return self.state == "running"
         while True:
@@ -142,6 +176,10 @@ class Job:
         if self.proc is not None:
             kill_tree(self.proc)
             self.proc = None
+        if self._gen is not None:
+            self._gen.close()
+            self._gen = None
+        self._call = None
         self.error = "cancelled"
         self._end("cancelled")
 
@@ -196,11 +234,40 @@ def cancel():
         _finish(_job)
 
 
+def label(job):
+    """'Build Scene · Cameras · IMG_3240 · 62%'."""
+    return " · ".join(p for p in (job.name, job.stage, job.detail, f"{job.percent:.0f}%") if p)
+
+
 def _redraw():
+    """Repaint the sidebar and put the progress in the status bar (seen even with the sidebar closed)."""
+    job = _job
+    text = label(job) + "   (Cancel in the Scan Pipeline panel)" if job and job.state == "running" else None
     for win in bpy.context.window_manager.windows if bpy.context.window_manager else []:
+        try:
+            win.workspace.status_text_set(text)
+        except (AttributeError, RuntimeError):
+            pass
+        for area in win.screen.areas:
+            if area.type in ("VIEW_3D", "STATUSBAR"):
+                area.tag_redraw()
+
+
+def run_or_start(job):
+    """Start in the background (UI), or run to the end (background mode / tests)."""
+    return run_blocking(job) if bpy.app.background else start(job)
+
+
+def ui_override():
+    """Context for operators called from a job tick (timers have no window): the first window
+    with a 3D view."""
+    wm = bpy.context.window_manager
+    for win in wm.windows:
         for area in win.screen.areas:
             if area.type == "VIEW_3D":
-                area.tag_redraw()
+                region = next((r for r in area.regions if r.type == "WINDOW"), None)
+                return bpy.context.temp_override(window=win, screen=win.screen, area=area, region=region)
+    return bpy.context.temp_override()
 
 
 def _finish(job):
@@ -228,7 +295,7 @@ def _tick():
     if not running:
         _finish(job)
         return None
-    return 0.5
+    return 0.01 if job._call is not None or job._gen is not None else 0.5
 
 
 def run_blocking(job, timeout=None):
@@ -242,7 +309,8 @@ def run_blocking(job, timeout=None):
     job._next()
     t0 = time.time()
     while job.poll():
-        time.sleep(0.2)
+        if job._call is None and job._gen is None:
+            time.sleep(0.2)
         if timeout and time.time() - t0 > timeout:
             job.cancel()
     _finish(job)
@@ -256,9 +324,9 @@ def draw_progress(layout):
         return
     if job.state == "running":
         row = layout.row(align=True)
-        row.progress(factor=job.percent / 100.0, text=f"{job.name}: {job.stage}  {job.percent:.0f}%")
+        row.progress(factor=job.percent / 100.0, text=label(job))
         row.operator("livinglacquer.pipe_cancel_job", text="", icon="CANCEL")
-        if job.lines:
+        if job.proc is not None and job.lines:
             layout.label(text=job.lines[-1][:90])
     elif job.state in ("failed", "cancelled"):
         layout.label(text=f"{job.name}: {job.error or job.state}", icon="ERROR")

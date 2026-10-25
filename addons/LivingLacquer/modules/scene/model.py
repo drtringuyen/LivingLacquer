@@ -25,7 +25,7 @@ def _import(path):
         raise ValueError(f"Unsupported model format {ext}")
 
 
-def _move_to(ob, col):
+def move_to(ob, col):
     for c in list(ob.users_collection):
         c.objects.unlink(ob)
     col.objects.link(ob)
@@ -68,7 +68,7 @@ def import_model(path, name, col):
     ob = max(meshes, key=lambda o: len(o.data.vertices))
     for o in rest:
         if o is not ob:
-            _move_to(o, col)            # extra objects (rare) stay, next to the model
+            move_to(o, col)            # extra objects (rare) stay, next to the model
     ob.parent = None
     ob.name = name
     if ob.data:
@@ -77,8 +77,8 @@ def import_model(path, name, col):
         if m.type == "MESH_SEQUENCE_CACHE" and m.cache_file:
             m.cache_file.name = os.path.basename(path)
             m.cache_file.filepath = bpy.path.relpath(path) if bpy.data.filepath else path
-    _move_to(ob, col)
-    ob.matrix_world = Matrix.Rotation(math.radians(START.get(os.path.splitext(path)[1].lower(), 0.0)), 4, "X")
+    move_to(ob, col)
+    ob.matrix_basis = Matrix.Rotation(math.radians(START.get(os.path.splitext(path)[1].lower(), 0.0)), 4, "X")
     return ob, len(cams)
 
 
@@ -123,7 +123,7 @@ def align(ob, sensors, cameras, n_cams=9):
         return 0.0, None, None
     pick = [cameras[i] for i in np.linspace(0, len(cameras) - 1, min(n_cams, len(cameras))).astype(int)]
     local = _sample_vertices(ob)
-    start = round(math.degrees(ob.matrix_world.to_euler().x))
+    start = round(math.degrees(ob.matrix_basis.to_euler().x))
     best = (-1.0, 0.0)
     for deg in CANDIDATES:
         m = np.array(Matrix.Rotation(math.radians(deg), 4, "X"))
@@ -131,7 +131,7 @@ def align(ob, sensors, cameras, n_cams=9):
         s = _score(pts, pick, sensors)
         if s > best[0] + 1e-6:
             best = (s, deg)
-    ob.matrix_world = Matrix.Rotation(math.radians(best[1]), 4, "X")
+    ob.matrix_basis = Matrix.Rotation(math.radians(best[1]), 4, "X")       # in the Transform empty's space
     return best[0], best[1], start
 
 

@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "livinglacquer"
-version = "0.2.0"
+version = "0.2.2"
 name = "LivingLacquer"
 tagline = "Modeling and texturing assistant for scanned lacquerware"
 maintainer = "drtringuyen"

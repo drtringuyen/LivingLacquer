@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.2 (2026-10-25)
+
+- **Build Scene, ready for MultiCamProject:** the scan mesh goes to the `OBJECTS` collection and the cameras to `CAMERAS` (cameras only), the names MultiCamProject picks up by itself. Both hang under one empty, `Transform` (scene root collection): move / rotate / scale it to place the whole scan; Build keeps it and re-places everything under it on re-runs. Only scan cameras (with `metashape_res`) are ever removed from `CAMERAS`. Old `Geometry_<Object>` / `Cameras_<Object>` collections are cleaned up when empty.
+- Checked headless on the scratch Teapot: collections, parenting (mesh + 52 cameras), and a Transform moved / rotated / scaled between two Builds (everything follows, no duplicates).
+
+## 0.2.1 (2026-10-25)
+
+- **Progress bar for every wait.** Check Links, Fix, Build Scene (+ Undistort), Undistort, Package and the engines' publishing now run as background jobs: a progress bar with the current item and Cancel at the top of the Scan Pipeline panel, and the same line in Blender's status bar (visible with the sidebar closed). Python steps run in 0.1 s slices (generators that yield their progress), so Blender redraws between them; the one call that cannot be split (the model import) is announced first.
+- Engine jobs publish (step 8) as their last job steps; Convert & Sort's moves and the engines' photo copies report per file.
+- Fix uses the last Check's result, so its dialog opens at once.
+- Checked: headless tests re-run (Build, Fix, Convert, Hybrid, panel draw) and a live Check Links in Blender 5.2.2 through the timer.
+
 ## 0.2.0 (2026-10-25)
 
 Scan pipeline steps 2-8 (plan phases 2-6). Details per step in docs/HANDOFF.md §6.

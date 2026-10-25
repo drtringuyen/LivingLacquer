@@ -74,9 +74,24 @@ def pick_jpg(files):
     return sorted(files, key=lambda p: os.path.splitext(p)[1].lower() not in (".jpg", ".jpeg"))[0]
 
 
+def drain(gen):
+    """Run a progress generator to the end and return its result (for callers without a job)."""
+    try:
+        while True:
+            next(gen)
+    except StopIteration as e:
+        return e.value
+
+
 def check_folder(root):
     """Folder checks. Returns (items, found) where found is paths.locate(root)."""
+    return drain(check_folder_iter(root))
+
+
+def check_folder_iter(root):
+    """check_folder as a job step: yields (progress 0-1, what) and returns (items, found)."""
     items = []
+    yield 0.0, "folders"
     found = paths.locate(root)
     obj = found["object"]
 
@@ -103,6 +118,7 @@ def check_folder(root):
     if missing:
         items.append(item("E28", INFO, f"{len(missing)} scan folder(s) missing", missing, fix="tree"))
 
+    yield 0.05, "listing files"
     files = walk_files(root)
     # Drive conflict copies (E23), Agisoft lock (E27), long paths (E25), non-ASCII (E24)
     conflicts = [os.path.join(d, f) for d, f in files if paths.is_conflict_copy(f)]
@@ -124,6 +140,7 @@ def check_folder(root):
                           "local cache)", [root]))
 
     # photos (A2, A3, A4)
+    yield 0.1, "photos"
     src = index_photos(found["source"], skip=(paths.ORIGINALS,))
     stray = [f for d, f in files if found["source"] and os.path.normcase(d) == os.path.normcase(found["source"])
              and os.path.splitext(f)[1].lower() in paths.RAW_EXTS]
@@ -148,12 +165,15 @@ def check_folder(root):
     if extras:
         items.append(item("A4", INFO, f"{len(extras)} iPhone extra(s) (IMG_E edits, .MOV) ignored", extras[:20]))
 
-    _check_cameras(root, found, src, items)
+    yield from _check_cameras(root, found, src, items)
     _check_geometry(root, found, items)
+    yield 1.0, "done"
     return items, found
 
 
 def _check_cameras(root, found, src, items):
+    """Generator: the photo headers are read one by one (they may stream from Drive)."""
+    yield 0.15, "camera XML"
     obj = found["object"]
     xml = found["xml"]
     cam_dir = found["cam"]
@@ -172,6 +192,7 @@ def _check_cameras(root, found, src, items):
     except Exception as e:
         items.append(item("B7", ERROR, f"Could not read {os.path.basename(xml)}: {e}"))
         return
+    yield 0.2, "matching photos"
 
     if x["chunks"] > 1:
         items.append(item("B9", WARN, f"{x['chunks']} chunks in the XML, the first one is used"))
@@ -221,7 +242,8 @@ def _check_cameras(root, found, src, items):
     # COLMAP publishes pinhole cameras: their images are the undistorted photos, not the source ones
     pinhole = bool(((marker.read(root) or {}).get("published") or {}).get("undistorted"))
     scaled, rotated, wrong = [], [], []
-    for c in aligned:
+    for n, c in enumerate(aligned):
+        yield 0.2 + 0.5 * n / max(len(aligned), 1), c["label"]
         photo = pick_jpg(undist[c["label"]]) if pinhole and c["label"] in undist else \
             (None if pinhole else c.get("photo"))
         if not photo or c["sensor"] not in x["sensors"]:
@@ -251,7 +273,8 @@ def _check_cameras(root, found, src, items):
     # undistorted photos (C14)
     have = [c for c in aligned if c["label"] in undist]
     bad = []
-    for c in have:
+    for n, c in enumerate(have):
+        yield 0.7 + 0.25 * n / max(len(have), 1), c["label"] + " (undistorted)"
         sw, sh, _ = x["sensors"].get(c["sensor"], (0, 0, ""))
         size = read_image_size(pick_jpg(undist[c["label"]]))
         if size and sw and size != (sw, sh):

@@ -183,9 +183,10 @@ def rename_folder(path, new_name):
 
 
 def apply(actions):
-    """Run relink / pull / relative actions. Returns (done, problems)."""
+    """Run relink / pull / relative actions. Generator (yields progress); returns (done, problems)."""
     done, problems = 0, []
-    for kind, e, new in actions:
+    for n, (kind, e, new) in enumerate(actions):
+        yield n / max(len(actions), 1), e["id"].name
         try:
             if kind == "pull":
                 if os.path.exists(new) and os.path.getsize(new) != os.path.getsize(e["abs"]):

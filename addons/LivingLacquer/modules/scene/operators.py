@@ -1,10 +1,11 @@
-"""Steps 6-8: Build Scene, Undistort & Backgrounds (modal, Esc stops), Package."""
+"""Steps 6-8: Build Scene, Undistort & Backgrounds, Package. All run as jobs, so the progress bar
+(panel + status bar) shows what Blender is doing; Cancel stops them between photos."""
 import os
 
 import bpy
 
 from ..metashape.photos import undistort_image
-from ..project import paths, state
+from ..project import jobs, state
 from . import build
 
 # last result line per step, for the panel
@@ -20,127 +21,99 @@ def status(key):
     return STATUS[key] if STATUS["blend"] == bpy.data.filepath else ""
 
 
+def undistort_steps(root, overwrite, ext, quality):
+    """Step 7 as job steps: undistort what is missing / stale, set every camera background."""
+    data = {"done": 0, "failed": 0}
+
+    def run(job):
+        queue, prints = build.undistort_queue(root, overwrite, ext)
+        total = sum(1 for j in queue if j[5])
+        for n, (name, _sid, cal, photo, out, need) in enumerate(queue):
+            yield n / max(len(queue), 1), (f"undistorting {name} ({data['done'] + 1}/{total})" if need
+                                           else f"background {name}")
+            if need:
+                tmp = os.path.splitext(out)[0] + ".ll_tmp" + os.path.splitext(out)[1]
+                try:
+                    undistort_image(photo, tmp, cal, quality)
+                    os.replace(tmp, out)
+                    data["done"] += 1
+                except Exception as e:
+                    data["failed"] += 1
+                    job.log(f"{name}: {e}")
+                    continue
+            build.set_camera_background(name, out)
+        if not data["failed"]:
+            build.save_fingerprints(root, prints)
+        _status("undistort", f"Undistort: {data['done']} photo(s) made"
+                + (f", {data['failed']} failed" if data["failed"] else ""))
+
+    return [jobs.Step("Undistort & backgrounds", run, weight=10)]
+
+
+def _undistort_args(context):
+    props = context.scene.livinglacquer_props
+    return props.pipe_overwrite, build.EXT[props.pipe_out_format], props.pipe_quality
+
+
 class _PipeOp:
     @classmethod
     def poll(cls, context):
-        return bool(state.get()["root"])
+        return bool(state.get()["root"]) and not jobs.busy()
 
 
 class LIVINGLACQUER_OT_PipeBuildScene(_PipeOp, bpy.types.Operator):
-    """Import the model, assign its textures, build the cameras from the camera XML and line them up.
-    Running it again updates everything in place. Undistorts the photos afterwards when needed"""
+    """Import the model, assign its textures, build the cameras from the camera XML and line them up,
+    then undistort the photos that are missing. Running it again updates everything in place"""
     bl_idname = "livinglacquer.pipe_build_scene"
     bl_label = "Build Scene"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER"}
 
     def execute(self, context):
         root = state.get()["root"]
-        if context.window:
-            context.window.cursor_set("WAIT")
-        try:
-            lines = build.build_scene(context, root)
-        except Exception as e:
-            self.report({"ERROR"}, f"Build Scene: {e}")
-            return {"CANCELLED"}
-        finally:
-            if context.window:
-                context.window.cursor_set("DEFAULT")
-        for line in lines:
-            print("LivingLacquer Build Scene:", line)
-        warn = any(l.startswith("WARNING") for l in lines)
-        _status("build", " · ".join(l for l in lines if not l.startswith("Textures")))
-        self.report({"WARNING" if warn else "INFO"}, "Build Scene: " + "; ".join(lines))
-        props = context.scene.livinglacquer_props
-        q, _ = build.undistort_queue(root, props.pipe_overwrite, build.EXT[props.pipe_out_format])
-        if q:                   # step 7 runs inside step 6: undistort what is missing, set the backgrounds
-            if bpy.app.background:
-                bpy.ops.livinglacquer.pipe_undistort("EXEC_DEFAULT")
-            else:
-                bpy.ops.livinglacquer.pipe_undistort("INVOKE_DEFAULT")
+
+        def scene_step(job):
+            job.data["lines"] = yield from build.build_scene(root)
+            for line in job.data["lines"]:
+                print("LivingLacquer Build Scene:", line)
+            _status("build", " · ".join(l for l in job.data["lines"] if not l.startswith("Textures")))
+
+        def done(job):
+            if job.state != "done":
+                _status("build", f"Build Scene: {job.error or job.state}")
+
+        steps = [jobs.Step("Build scene", scene_step, weight=3)] + undistort_steps(root, *_undistort_args(context))
+        jobs.run_or_start(jobs.Job("Build Scene", steps, on_done=done))
         return {"FINISHED"}
 
 
 class LIVINGLACQUER_OT_PipeUndistort(_PipeOp, bpy.types.Operator):
     """Undistort the photos into 01.CAM_Photos (only the missing or stale ones) and set them as the
-    camera backgrounds. Esc stops; finished photos are kept"""
+    camera backgrounds. Cancel stops between photos; finished photos are kept"""
     bl_idname = "livinglacquer.pipe_undistort"
     bl_label = "Undistort & Backgrounds"
     bl_options = {"REGISTER"}
 
-    _timer = None
-
-    def _prepare(self, context):
-        props = context.scene.livinglacquer_props
-        self.root = state.get()["root"]
-        self.queue, self.prints = build.undistort_queue(self.root, props.pipe_overwrite,
-                                                        build.EXT[props.pipe_out_format])
-        self.quality = props.pipe_quality
-        self.total = sum(1 for j in self.queue if j[5])
-        self.done = self.failed = 0
-        self.stopped = False
-
-    def _step(self, context):
-        name, _sid, cal, photo, out, need = self.queue.pop(0)
-        if need:
-            tmp = os.path.splitext(out)[0] + ".ll_tmp" + os.path.splitext(out)[1]
-            try:
-                undistort_image(photo, tmp, cal, self.quality)
-                os.replace(tmp, out)
-                self.done += 1
-            except Exception as e:
-                self.failed += 1
-                print(f"LivingLacquer Undistort: {name}: {e}")
-                return
-        build.set_camera_background(context, name, out)
-
-    def _finish(self, context):
-        if not self.stopped and not self.failed:
-            build.save_fingerprints(self.root, self.prints)
-        msg = f"Undistort: {self.done} photo(s) made" + (f", {self.failed} failed" if self.failed else "") \
-              + (", stopped" if self.stopped else "")
-        _status("undistort", msg)
-        self.report({"WARNING" if self.failed or self.stopped else "INFO"}, msg)
-
-    def invoke(self, context, event):
-        self._prepare(context)
-        if not self.queue:
-            self.report({"WARNING"}, "No cameras to undistort (build the scene first)")
-            return {"CANCELLED"}
-        wm = context.window_manager
-        self._timer = wm.event_timer_add(0.01, window=context.window)
-        wm.progress_begin(0, max(len(self.queue), 1))
-        wm.modal_handler_add(self)
-        self.n0 = len(self.queue)
-        return {"RUNNING_MODAL"}
-
     def execute(self, context):
-        self._prepare(context)
-        while self.queue:
-            self._step(context)
-        self._finish(context)
+        root = state.get()["root"]
+        jobs.run_or_start(jobs.Job("Undistort", undistort_steps(root, *_undistort_args(context))))
         return {"FINISHED"}
 
-    def modal(self, context, event):
-        wm = context.window_manager
-        if event.type == "ESC":
-            self.stopped = True
-            self.queue = [j[:5] + (False,) for j in self.queue]     # keep setting backgrounds, stop undistorting
-        if event.type not in ("TIMER", "ESC"):
-            return {"PASS_THROUGH"}
-        if self.queue:
-            self._step(context)
-            n = self.n0 - len(self.queue)
-            wm.progress_update(n)
-            if context.area:
-                context.area.header_text_set(f"Undistort: {self.done}/{self.total} photos, camera {n}/{self.n0}"
-                                             "  (Esc to stop)")
-            return {"RUNNING_MODAL"}
-        wm.event_timer_remove(self._timer)
-        wm.progress_end()
-        if context.area:
-            context.area.header_text_set(None)
-        self._finish(context)
-        return {"FINISHED"}
+
+def package_steps(root):
+    """Step 8 as job steps (also the last steps of the engine jobs)."""
+    def publish(job):
+        job.data["publish"] = yield from build.publish(root)
+
+    def relative(job):
+        try:
+            with jobs.ui_override():
+                bpy.ops.file.make_paths_relative()
+        except RuntimeError as e:
+            job.data["publish"].append(f"Some paths stay absolute: {e}")
+        state.refresh()
+        _status("package", job.data["publish"][0])
+
+    return [jobs.Step("Publish", publish, weight=5), jobs.Step("Relative paths", relative, weight=0.5)]
 
 
 class LIVINGLACQUER_OT_PipePackage(_PipeOp, bpy.types.Operator):
@@ -152,18 +125,7 @@ class LIVINGLACQUER_OT_PipePackage(_PipeOp, bpy.types.Operator):
 
     def execute(self, context):
         root = state.get()["root"]
-        try:
-            lines = build.publish(root)
-        except Exception as e:
-            self.report({"ERROR"}, f"Package: {e}")
-            return {"CANCELLED"}
-        try:
-            bpy.ops.file.make_paths_relative()
-        except RuntimeError as e:
-            lines.append(f"Some paths stay absolute: {e}")
-        state.refresh()
-        _status("package", lines[0])
-        self.report({"INFO"}, "Package: " + "; ".join(lines) + "; save the .blend")
+        jobs.run_or_start(jobs.Job("Package", package_steps(root)))
         return {"FINISHED"}
 
 

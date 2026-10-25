@@ -6,19 +6,52 @@ import shutil
 from datetime import datetime
 
 import bpy
+from mathutils import Matrix
 
 from ..linker.checks import index_photos, match_photo, pick_jpg
 from ..metashape.cameras import build_camera, get_collection, set_background
 from ..metashape.parse import parse_metashape_xml
 from ..metashape.photos import read_image_size, size_matches
 from ..project import marker, paths
+from ..project.jobs import ui_override as jobs_ui
 from . import model
 
 EXT = {"JPG": ".jpg", "PNG": ".png", "TIF": ".tif"}
 
 
-def collections(obj):
-    return f"Geometry_{obj}", f"Cameras_{obj}"
+# MultiCamProject finds these by name (roles.py): OBJECTS = scan meshes, CAMERAS = cameras only
+OBJECTS = "OBJECTS"
+CAMERAS = "CAMERAS"
+TRANSFORM = "Transform"
+FLIP = Matrix.Diagonal((1, -1, -1, 1))      # Metashape camera (Y down, Z forward) -> Blender camera
+
+
+def transform_empty(scene):
+    """The empty every scan object and camera hangs under, in the scene's root collection (outside
+    OBJECTS / CAMERAS). Moving / rotating / scaling it moves the whole scan; Build keeps it."""
+    ob = bpy.data.objects.get(TRANSFORM)
+    if ob is None or ob.type != "EMPTY":
+        ob = bpy.data.objects.new(TRANSFORM, None)
+        ob.empty_display_type = "ARROWS"
+        ob.empty_display_size = 1.0
+    if ob.name not in scene.collection.objects:
+        scene.collection.objects.link(ob)
+    return ob
+
+
+def parent_to(ob, parent, local):
+    """Hang ob under parent with `local` as its matrix in the parent's space (no parent inverse),
+    so a moved Transform keeps carrying everything on re-runs."""
+    ob.parent = parent
+    ob.matrix_parent_inverse.identity()
+    ob.matrix_basis = local
+
+
+def _drop_old_collection(name):
+    """Collections of builds before 0.2.2 (Geometry_<Object>, Cameras_<Object>) once emptied."""
+    col = bpy.data.collections.get(name)
+    if col and not col.all_objects and not col.children:
+        bpy.data.collections.remove(col)
 
 
 def fingerprint(cal):
@@ -55,50 +88,63 @@ def camera_jobs(root, found):
     return sensors, cams, jobs, skipped
 
 
-def build_scene(context, root):
-    """Step 6. Model + textures + cameras from the published folders, updated in place.
-    Returns a list of report lines."""
+def build_scene(root):
+    """Step 6 as a job step: model + textures + cameras from the published folders, updated in place.
+    Generator: yields (progress, what); returns the report lines."""
+    scene = bpy.context.scene
     found = paths.locate(root)
     obj = found["object"]
     if not found["xml"]:
         raise ValueError(f"No camera XML: CAM_{obj}.xml in {paths.SCAN}\\{paths.CAM}")
-    props = context.scene.livinglacquer_props
-    geo_col_name, cam_col_name = collections(obj)
+    props = scene.livinglacquer_props
     lines = []
+    rig = transform_empty(scene)
 
+    yield 0.02, "reading the camera XML and photo sizes"
     sensors, cams, jobs, skipped = camera_jobs(root, found)
 
     if found["model"]:
-        geo = get_collection(context.scene, geo_col_name)
-        ob, n_abc = model.import_model(found["model"], f"OBJ_{obj}", geo)
-        lines.append(f"Model {os.path.basename(found['model'])}" +
+        yield 0.1, f"importing {os.path.basename(found['model'])} (Blender pauses while it loads)"
+        geo = get_collection(scene, OBJECTS)
+        with jobs_ui():
+            ob, n_abc = model.import_model(found["model"], f"OBJ_{obj}", geo)
+        lines.append(f"Model {os.path.basename(found['model'])} in {OBJECTS}" +
                      (f", {n_abc} camera(s) from the file removed (XML cameras win)" if n_abc else ""))
+        parent_to(ob, rig, ob.matrix_basis)
+        yield 0.4, "lining the mesh up with the cameras"
         score, deg, start = model.align(ob, sensors, cams)
         if deg is not None:
             lines.append(f"Alignment {score:.0%} of the mesh inside the photos, rotation X {deg:+.0f} deg"
                          + ("" if deg == start else f" (changed from {start:+.0f})"))
             if score < 0.5:
                 lines.append("WARNING: the mesh does not line up with the cameras; check the model export")
+        yield 0.5, "textures"
         lines.append("Textures: " + model.assign_textures(ob, found["textures"], obj))
     else:
         lines.append(f"No model yet (OBJ_{obj}.abc / .fbx / .obj in {paths.GEOMETRY})")
 
-    col = get_collection(context.scene, cam_col_name)
+    col = get_collection(scene, CAMERAS)
     opts = {"bg_alpha": props.metashape_bg_alpha, "bg_depth": props.metashape_bg_depth, "display_size": 0.2,
             "clip_start": 0.01, "clip_end": 1000.0, "relative": True}
     keep = set()
-    for c, cal, photo, out in jobs:
+    for n, (c, cal, photo, out) in enumerate(jobs):
+        yield 0.55 + 0.45 * n / max(len(jobs), 1), f"camera {c['label']}"
         bg = out if os.path.exists(out) else None
         ob = build_camera(c, cal, bg, col, opts)
+        model.move_to(ob, col)                  # only in CAMERAS (MultiCamProject wants cameras only there)
+        parent_to(ob, rig, c["matrix"] @ FLIP)
         ob["ll_sensor"] = c["sensor"]
         keep.add(ob.name)
     removed = 0
-    for o in list(col.objects):
-        if o.type == "CAMERA" and o.name not in keep:
+    for o in list(col.objects):                 # scan cameras no longer in the XML; other cameras stay
+        if o.type == "CAMERA" and o.name not in keep and "metashape_res" in o:
             model.remove_object(o)
             removed += 1
+    for name in (f"Geometry_{obj}", f"Cameras_{obj}"):
+        _drop_old_collection(name)
     props.metashape_collection = col.name
-    lines.append(f"{len(keep)} camera(s) in {col.name}" + (f", {removed} old one(s) removed" if removed else ""))
+    lines.append(f"{len(keep)} camera(s) in {col.name}, all under the '{TRANSFORM}' empty"
+                 + (f", {removed} old one(s) removed" if removed else ""))
     if skipped:
         lines.append(f"{len(skipped)} camera(s) skipped: " + ", ".join(skipped[:5]))
     no_photo = [c["label"] for c, _cal, photo, out in jobs if not photo and not os.path.exists(out)]
@@ -107,10 +153,10 @@ def build_scene(context, root):
     if jobs:
         first = bpy.data.objects.get(jobs[0][0]["label"])
         if first:
-            context.scene.camera = first
+            scene.camera = first
             res = first.get("metashape_res")
             if res:
-                context.scene.render.resolution_x, context.scene.render.resolution_y = int(res[0]), int(res[1])
+                scene.render.resolution_x, scene.render.resolution_y = int(res[0]), int(res[1])
     return lines
 
 
@@ -133,10 +179,10 @@ def undistort_queue(root, overwrite=False, ext=".jpg"):
     return q, {sid: fingerprint(cal) for sid, cal in sensors.items()}
 
 
-def set_camera_background(context, name, path):
+def set_camera_background(name, path):
     ob = bpy.data.objects.get(name)
     if ob and ob.type == "CAMERA" and os.path.exists(path):
-        props = context.scene.livinglacquer_props
+        props = bpy.context.scene.livinglacquer_props
         set_background(ob.data, path, props.metashape_bg_alpha, props.metashape_bg_depth, relative=True)
         ob["metashape_photo"] = bpy.path.relpath(path) if bpy.data.filepath else path
 
@@ -196,7 +242,9 @@ def _copy(src, dst, stamp=None):
 
 def publish(root):
     """Step 8. Copy the newest engine result into 01.CAM_Photos + 02.Geometry with the §2 names and
-    record it in livinglacquer.json. Idempotent. Returns report lines."""
+    record it in livinglacquer.json. Idempotent. Generator (job step): yields progress, returns
+    report lines."""
+    yield 0.0, "looking for the engine result"
     found = paths.locate(root)
     obj = found["object"]
     paths.create_tree(root)
@@ -212,6 +260,7 @@ def publish(root):
         keep = None if same_engine else stamp      # replacing another engine's files: set them aside
         if xml and os.path.exists(xml):
             copied += _copy(xml, os.path.join(found["cam"], f"CAM_{obj}.xml"), keep)
+        yield 0.05, "model"
         if mdl and os.path.exists(mdl):
             ext = os.path.splitext(mdl)[1].lower()
             for f in os.listdir(found["geometry"]):          # one model format at a time
@@ -229,6 +278,7 @@ def publish(root):
                 copied += _write_mtl(get("mtl"), os.path.join(found["geometry"], f"OBJ_{obj}.mtl"),
                                      res.get("textures", []), obj)
         for i, t in enumerate(res.get("textures", [])):
+            yield 0.3, f"texture {i + 1}"
             src = os.path.join(folder, t)
             if os.path.exists(src):
                 suffix = "" if i == 0 else f"_{i + 1}"
@@ -236,9 +286,10 @@ def publish(root):
                                                   f"OBJ_{obj}{suffix}{os.path.splitext(src)[1].lower()}"), keep)
         pdir = get("photos")
         if pdir and os.path.isdir(pdir):
-            for f in os.listdir(pdir):
-                if f.lower().endswith(paths.PHOTO_EXTS):
-                    copied += _copy(os.path.join(pdir, f), os.path.join(found["cam"], f))
+            photos = [f for f in os.listdir(pdir) if f.lower().endswith(paths.PHOTO_EXTS)]
+            for n, f in enumerate(photos):
+                yield 0.4 + 0.6 * n / len(photos), f
+                copied += _copy(os.path.join(pdir, f), os.path.join(found["cam"], f))
         m["published"] = {"engine": res.get("engine", ""), "date": datetime.now().isoformat(timespec="seconds"),
                           "undistorted": bool(res.get("undistorted")), "source": paths.rel(root, folder)}
         lines.append(f"Published the {res.get('engine', '')} result: {copied} file(s) copied"

@@ -34,7 +34,8 @@ def convert_job(root, fmt="JPG", quality=95):
 
     def sort(job):
         moved = 0
-        for a, b in p["moves"]:
+        for n, (a, b) in enumerate(p["moves"]):
+            yield n / max(len(p["moves"]), 1), os.path.basename(a)
             if os.path.exists(b):
                 if os.path.getsize(a) == os.path.getsize(b):
                     os.remove(a)            # same file is already in zz.Originals
