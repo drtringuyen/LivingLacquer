@@ -14,7 +14,7 @@ from ..metashape.parse import parse_metashape_xml
 from ..metashape.photos import read_image_size, size_matches
 from ..project import marker, paths
 from ..project.jobs import ui_override as jobs_ui
-from . import model
+from . import level, model
 
 EXT = {"JPG": ".jpg", "PNG": ".png", "TIF": ".tif"}
 
@@ -23,19 +23,19 @@ EXT = {"JPG": ".jpg", "PNG": ".png", "TIF": ".tif"}
 OBJECTS = "OBJECTS"
 CAMERAS = "CAMERAS"
 TRANSFORM = "Transform"
+TRANSFORM_COLLECTION = "TRANSFORM"
 FLIP = Matrix.Diagonal((1, -1, -1, 1))      # Metashape camera (Y down, Z forward) -> Blender camera
 
 
 def transform_empty(scene):
-    """The empty every scan object and camera hangs under, in the scene's root collection (outside
+    """The empty every scan object and camera hangs under, alone in its TRANSFORM collection (outside
     OBJECTS / CAMERAS). Moving / rotating / scaling it moves the whole scan; Build keeps it."""
     ob = bpy.data.objects.get(TRANSFORM)
     if ob is None or ob.type != "EMPTY":
         ob = bpy.data.objects.new(TRANSFORM, None)
         ob.empty_display_type = "ARROWS"
         ob.empty_display_size = 1.0
-    if ob.name not in scene.collection.objects:
-        scene.collection.objects.link(ob)
+    model.move_to(ob, get_collection(scene, TRANSFORM_COLLECTION))
     return ob
 
 
@@ -150,6 +150,13 @@ def build_scene(root):
     no_photo = [c["label"] for c, _cal, photo, out in jobs if not photo and not os.path.exists(out)]
     if no_photo:
         lines.append(f"{len(no_photo)} camera(s) without a photo (no background): " + ", ".join(no_photo[:5]))
+    if level.is_fresh(rig):                     # first Build: stand it upright in the middle (once)
+        yield 0.97, "levelling and centering"
+        bpy.context.view_layer.update()
+        tilt = level.level(rig, bpy.data.objects.get(f"OBJ_{obj}"),
+                           [o for o in col.objects if o.type == "CAMERA" and o.parent == rig])
+        if tilt is not None:
+            lines.append(f"Auto Level & Center: tilted {tilt:.0f} deg upright, centered on the origin")
     if jobs:
         first = bpy.data.objects.get(jobs[0][0]["label"])
         if first:

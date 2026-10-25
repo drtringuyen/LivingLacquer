@@ -2,6 +2,13 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 
 
+def _redraw_view3d(context):
+    for win in context.window_manager.windows:
+        for area in win.screen.areas:
+            if area.type == "VIEW_3D":
+                area.tag_redraw()
+
+
 class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
     """Global properties shared across all modules"""
 
@@ -20,7 +27,7 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
     addon_version: StringProperty(
         name="Version",
         description="Current addon version",
-        default="0.2.2"
+        default="0.2.3"
     )
 
     # metashape: collection the sidebar steps through, and the background photo look
@@ -65,6 +72,10 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
     pipe_quality: IntProperty(name="Quality", description="JPG quality", default=95, min=50, max=100)
     pipe_overwrite: BoolProperty(name="Overwrite", default=False,
                                  description="Undistort again even when the photo already exists")
+    pipe_show_human: BoolProperty(
+        name="1.7 m Person", default=True,
+        description="Draw a 1.7 m person next to the scan in the 3D Viewport, to judge how much to scale it",
+        update=lambda self, context: _redraw_view3d(context))
     pipe_show_gear: BoolProperty(name="Advanced", description="Show the advanced options", default=False)
     pipe_show_report: BoolProperty(name="Details", description="Show every line of the Check Links report",
                                    default=False)

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3 (2026-10-25)
+
+- **Auto Level & Center:** on the first Build the scan is stood upright and centered on the world origin by itself. Up comes from the circle of cameras (the normal of the plane they lie on), the center from the mesh's vertices; nothing is copied from a previous object. Only the `Transform` empty moves; a Transform the user has changed is left alone on later Builds. Button to redo it.
+- **Scale mode:** right after that first Build, Blender is in interactive scaling of `Transform` about the world origin; the **Scale** button starts it again any time.
+- **1.7 m person:** GPU overlay beside the scan (toggle "1.7 m" next to Build) to judge the size while scaling.
+- `Transform` now lives alone in its own `TRANSFORM` collection.
+- Checked headless (levelling 31 deg vs the user's 30.7 deg by hand, mesh centered within 0.02, user scale kept on re-Build, button) and live (the person overlay draws in Blender 5.2.2). Not checked: the automatic scale mode right after Build in the UI.
+
 ## 0.2.2 (2026-10-25)
 
 - **Build Scene, ready for MultiCamProject:** the scan mesh goes to the `OBJECTS` collection and the cameras to `CAMERAS` (cameras only), the names MultiCamProject picks up by itself. Both hang under one empty, `Transform` (scene root collection): move / rotate / scale it to place the whole scan; Build keeps it and re-places everything under it on re-runs. Only scan cameras (with `metashape_res`) are ever removed from `CAMERAS`. Old `Geometry_<Object>` / `Cameras_<Object>` collections are cleaned up when empty.

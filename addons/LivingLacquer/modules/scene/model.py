@@ -82,7 +82,7 @@ def import_model(path, name, col):
     return ob, len(cams)
 
 
-def _sample_vertices(ob, n=1500):
+def sample_vertices(ob, n=1500):
     """(n, 3) local vertex positions of the evaluated mesh (Alembic meshes live in a modifier)."""
     dg = bpy.context.evaluated_depsgraph_get()
     ev = ob.evaluated_get(dg)
@@ -122,7 +122,7 @@ def align(ob, sensors, cameras, n_cams=9):
     if not cameras:
         return 0.0, None, None
     pick = [cameras[i] for i in np.linspace(0, len(cameras) - 1, min(n_cams, len(cameras))).astype(int)]
-    local = _sample_vertices(ob)
+    local = sample_vertices(ob)
     start = round(math.degrees(ob.matrix_basis.to_euler().x))
     best = (-1.0, 0.0)
     for deg in CANDIDATES:

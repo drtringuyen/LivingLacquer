@@ -5,8 +5,8 @@ import os
 import bpy
 
 from ..metashape.photos import undistort_image
-from ..project import jobs, state
-from . import build
+from ..project import jobs, paths, state
+from . import build, level
 
 # last result line per step, for the panel
 STATUS = {"build": "", "undistort": "", "package": "", "blend": None}
@@ -55,6 +55,66 @@ def _undistort_args(context):
     return props.pipe_overwrite, build.EXT[props.pipe_out_format], props.pipe_quality
 
 
+def start_scaling():
+    """Select the Transform empty alone and start interactive scaling about the world origin (where
+    Auto Level put the object's center). Returns False when there is no Transform or no 3D view."""
+    rig = bpy.data.objects.get(build.TRANSFORM)
+    if rig is None or bpy.context.view_layer.objects.get(rig.name) is None:
+        return False
+    for o in bpy.context.view_layer.objects.selected:
+        o.select_set(False)
+    rig.hide_set(False)
+    rig.select_set(True)
+    bpy.context.view_layer.objects.active = rig
+    try:
+        with jobs.ui_override():
+            bpy.ops.transform.resize("INVOKE_DEFAULT", center_override=(0.0, 0.0, 0.0))
+    except RuntimeError:
+        return False
+    return True
+
+
+class LIVINGLACQUER_OT_PipeScale(bpy.types.Operator):
+    """Scale the whole scan (the Transform empty) about the world origin with the mouse; turn on the
+    1.7 m human to judge the size. Click to confirm, right-click / Esc to cancel"""
+    bl_idname = "livinglacquer.pipe_scale"
+    bl_label = "Scale"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return bpy.data.objects.get(build.TRANSFORM) is not None and context.mode == "OBJECT"
+
+    def execute(self, context):
+        if not start_scaling():
+            self.report({"ERROR"}, "No 3D Viewport to scale in")
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class LIVINGLACQUER_OT_PipeAutoLevel(bpy.types.Operator):
+    """Stand the scan upright (from the circle of cameras) and put its center on the world origin,
+    keeping the scale. Only the Transform empty moves; Ctrl+Z undoes it"""
+    bl_idname = "livinglacquer.pipe_auto_level"
+    bl_label = "Auto Level & Center"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return bpy.data.objects.get(build.TRANSFORM) is not None and not jobs.busy()
+
+    def execute(self, context):
+        rig = bpy.data.objects[build.TRANSFORM]
+        obj = paths.object_name(state.get()["root"]) if state.get()["root"] else ""
+        mesh = bpy.data.objects.get(f"OBJ_{obj}") or next((o for o in rig.children if o.type == "MESH"), None)
+        tilt = level.level(rig, mesh, [o for o in rig.children if o.type == "CAMERA"])
+        if tilt is None:
+            self.report({"ERROR"}, "Needs at least 3 cameras under the Transform empty (run Build)")
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Tilted {tilt:.0f} deg upright, centered on the origin")
+        return {"FINISHED"}
+
+
 class _PipeOp:
     @classmethod
     def poll(cls, context):
@@ -80,6 +140,8 @@ class LIVINGLACQUER_OT_PipeBuildScene(_PipeOp, bpy.types.Operator):
         def done(job):
             if job.state != "done":
                 _status("build", f"Build Scene: {job.error or job.state}")
+            elif any(l.startswith("Auto Level") for l in job.data.get("lines", [])) and not bpy.app.background:
+                start_scaling()             # first Build: hand the size over to the user right away
 
         steps = [jobs.Step("Build scene", scene_step, weight=3)] + undistort_steps(root, *_undistort_args(context))
         jobs.run_or_start(jobs.Job("Build Scene", steps, on_done=done))
@@ -129,7 +191,8 @@ class LIVINGLACQUER_OT_PipePackage(_PipeOp, bpy.types.Operator):
         return {"FINISHED"}
 
 
-classes = (LIVINGLACQUER_OT_PipeBuildScene, LIVINGLACQUER_OT_PipeUndistort, LIVINGLACQUER_OT_PipePackage)
+classes = (LIVINGLACQUER_OT_PipeBuildScene, LIVINGLACQUER_OT_PipeUndistort, LIVINGLACQUER_OT_PipePackage,
+           LIVINGLACQUER_OT_PipeScale, LIVINGLACQUER_OT_PipeAutoLevel)
 
 
 def register():
