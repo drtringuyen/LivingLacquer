@@ -19,15 +19,20 @@ import bpy
 PERCENT = re.compile(r"(\d{1,3}(?:\.\d+)?)\s?%")
 FRACTION = re.compile(r"\[(\d+)\s*/\s*(\d+)\]")      # COLMAP: "Processed file [12/112]"
 SLICE = 0.1             # seconds of Python work per timer tick
+# no console window, and below-normal priority: COLMAP / OpenMVS use every core, Blender's UI must still
+# get time or Windows marks it "not responding"
+BACKGROUND_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
 _job = None
 
 
 class Step:
     """argv: a command (list), or a Python callable taking the job (main thread). A callable that
-    returns a generator runs in slices; each yield gives the progress of the step."""
+    returns a generator runs in slices; each yield gives the progress of the step. when: optional
+    callable(job) -> False skips the step (e.g. a fallback that only runs when the step before failed)."""
 
-    def __init__(self, label, argv, cwd=None, env=None, weight=1.0, ok_codes=(0,)):
+    def __init__(self, label, argv, cwd=None, env=None, weight=1.0, ok_codes=(0,), when=None):
         self.label, self.argv, self.cwd, self.env, self.weight, self.ok_codes = label, argv, cwd, env, weight, ok_codes
+        self.when = when
 
 
 class Job:
@@ -76,6 +81,9 @@ class Job:
             self._end("done")
             return
         st = self.steps[self.index]
+        if st.when is not None and not st.when(self):
+            self._next()                                # not needed this time
+            return
         self.log(f"=== {st.label}")
         if callable(st.argv):
             self._call = st             # runs on the next tick, after the panel shows the stage
@@ -89,7 +97,7 @@ class Job:
             self.proc = subprocess.Popen(
                 argv, cwd=st.cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", bufsize=1,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                creationflags=BACKGROUND_FLAGS)
         except OSError as e:
             self.error = f"{st.label}: could not start {argv[0]} ({e})"
             self.log("ERROR " + self.error)

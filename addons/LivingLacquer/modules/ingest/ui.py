@@ -29,6 +29,13 @@ def _draw_receive(layout):
             layout.operator("livinglacquer.pipe_install_deps", text="Install QR code (segno)",
                             icon="IMPORT").packages = "segno"
         layout.label(text=receiver.url())
+        layout.label(text="Opens in the phone's default browser; Safari works best", icon="INFO")
+        if st["https"] and not st["count"]:
+            col = layout.column(align=True)
+            col.alert = True                              # red: the phone forced a secure link
+            col.label(text="The phone tried a secure (https) link and failed.", icon="ERROR")
+            col.label(text="Long-press the QR code › Open in Safari,")
+            col.label(text="or in Brave: Shields › Upgrade to HTTPS off")
         layout.label(text=f"{st['count']} photo(s) received" + (f", {st['errors']} failed" if st["errors"] else ""))
         if st["log"]:
             layout.label(text=st["log"][-1])

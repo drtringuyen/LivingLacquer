@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.8 (2026-10-26)
+
+- **Blender stays responsive while the engines run:** COLMAP and OpenMVS now run at below-normal priority and OpenMVS leaves two cores free; before, Windows marked Blender "not responding" during the dense cloud / mesh stages (the job itself kept running).
+- **Texture no longer kills the run:** OpenMVS TextureMesh crashed (access violation) in its seam levelling on the 45-photo Teacup; the job now lets that fail softly and textures again without seam levelling (8K texture, 2 s).
+- **New Object refuses an object folder as the place for a new object** (the Teacup ended up inside the Teapot's folder); the remembered objects folder steps up to its parent when it points at an object folder.
+
+## 0.3.7 (2026-10-26)
+
+- **iPhone browsers that force https:** Brave turned the QR link into `https://` and showed ERR_SSL_PROTOCOL_ERROR. The receiver now spots such a secure attempt, closes it at once (some browsers then fall back to http by themselves) and step 2 shows in red what to do: open the link in Safari, or turn off Brave's "Upgrade connections to HTTPS" for it. Step 2 also says that the link opens in the phone's default browser.
+- **Fix:** on Windows a second Blender could take the same receiver port and get the phone's photos; each receiver now gets a port of its own.
+- Checked: a TLS client is closed at once and counted; normal page + upload still work; a second receiver moves to port 8766 while 8765 is in use.
+
 ## 0.3.6 (2026-10-26)
 
 - **A replaced photo is noticed:** Undistort records each source photo's size and date in livinglacquer.json. When a photo in zz.Source_Photos changes under the same name, its camera photo is made again by the next Undistort / Build, step 4 turns red ("N photo(s) replaced") and Check Links lists it. The first run after this update takes the current photos as the starting point (nothing is redone).

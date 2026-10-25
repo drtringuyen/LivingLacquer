@@ -11,7 +11,9 @@ def _start_folder():
     """Last objects folder, else the parent of the current object folder."""
     p = prefs.get()
     if p and p.objects_root and os.path.isdir(bpy.path.abspath(p.objects_root)):
-        return bpy.path.abspath(p.objects_root)
+        folder = bpy.path.abspath(p.objects_root).rstrip("\\/")
+        blend = os.path.join(folder, os.path.basename(folder) + ".blend")
+        return os.path.dirname(folder) if paths.object_root(blend) and os.path.isfile(blend) else folder
     root = state.get()["root"]
     return os.path.dirname(root) if root else ""
 
@@ -26,10 +28,16 @@ class LIVINGLACQUER_OT_PipeNewObject(bpy.types.Operator):
                                description="Folder holding the NN.<Object> folders (e.g. 00.3D)")
     object_name: StringProperty(name="Name", description="Object name, e.g. BatTrang_Teapot")
 
+    def _parent_is_object(self):
+        """The picked folder is itself an object folder (NN.<Object> with its .blend): not a place for
+        another object."""
+        parent = bpy.path.abspath(self.parent_dir).rstrip("\/")
+        return bool(parent) and bool(paths.object_root(os.path.join(parent, os.path.basename(parent) + ".blend")))             and os.path.isfile(os.path.join(parent, os.path.basename(parent) + ".blend"))
+
     def _target(self):
         parent = bpy.path.abspath(self.parent_dir)
         name = paths.sanitize(self.object_name)
-        if not (parent and os.path.isdir(parent) and name):
+        if not (parent and os.path.isdir(parent) and name) or self._parent_is_object():
             return None
         folder = f"{paths.next_number(parent)}.{name}"
         return os.path.join(parent, folder)
@@ -47,11 +55,17 @@ class LIVINGLACQUER_OT_PipeNewObject(bpy.types.Operator):
         if root:
             lay.label(text=f"{os.path.basename(root)}\\{os.path.basename(root)}.blend", icon="FILE_BLEND")
             lay.label(text="The current file is saved there, unsaved changes included.", icon="INFO")
+        elif self._parent_is_object():
+            lay.label(text=f"{os.path.basename(bpy.path.abspath(self.parent_dir).rstrip(os.sep))} is an object "
+                      "folder: pick the folder that holds the objects (e.g. 00.3D)", icon="ERROR")
         else:
             lay.label(text="Pick an existing folder and type a name", icon="ERROR")
 
     def execute(self, context):
         root = self._target()
+        if not root and self._parent_is_object():
+            self.report({"ERROR"}, "That folder is an object folder: pick the folder that holds the objects")
+            return {"CANCELLED"}
         if not root:
             self.report({"ERROR"}, "Pick an existing objects folder and type a name")
             return {"CANCELLED"}

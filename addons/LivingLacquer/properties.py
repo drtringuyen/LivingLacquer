@@ -54,7 +54,7 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
     addon_version: StringProperty(
         name="Version",
         description="Current addon version",
-        default="0.3.6"
+        default="0.3.8"
     )
 
     # metashape: collection the sidebar steps through, and the background photo look

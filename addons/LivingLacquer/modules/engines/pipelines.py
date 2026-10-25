@@ -16,13 +16,15 @@ from ..project import jobs, paths
 from . import colmap_xml, tools
 
 # densify resolution level, refine on/off, texture resolution level
+CRASH = 3221225477          # 0xC0000005, access violation
 PRESETS = {"FAST": (2, False, 2), "NORMAL": (1, True, 1), "HIGH": (0, True, 0)}
 MAX_EXHAUSTIVE = 300
 
 
 def _openmvs_steps(work, preset, first_input):
     dens, refine, tex = PRESETS[preset]
-    mvs = lambda t, *a: [tools.openmvs(t), "-w", work] + list(a)
+    threads = max(1, (os.cpu_count() or 4) - 2)     # two cores left for Blender
+    mvs = lambda t, *a: [tools.openmvs(t), "-w", work, "--max-threads", threads] + list(a)
     steps = [
         jobs.Step("Dense point cloud", mvs("DensifyPointCloud", "-i", first_input, "-o", "scene_dense.mvs",
                                            "--resolution-level", dens), weight=30),
@@ -33,9 +35,18 @@ def _openmvs_steps(work, preset, first_input):
         steps.append(jobs.Step("Refine mesh", mvs("RefineMesh", "-i", "scene_dense.mvs", "-m", mesh,
                                                   "-o", "scene_refine.mvs", "--resolution-level", 2), weight=15))
         mesh = "scene_refine.ply"
-    steps.append(jobs.Step("Texture", mvs("TextureMesh", "-i", "scene_dense.mvs", "-m", mesh,
-                                          "-o", "scene_texture.mvs", "--export-type", "obj",
-                                          "--resolution-level", tex), weight=10))
+    texture = ["-i", "scene_dense.mvs", "-m", mesh, "-o", "scene_texture.mvs", "--export-type", "obj",
+               "--resolution-level", tex]
+    # TextureMesh 2.4 can crash in its seam levelling (access violation, seen on a 45-photo iPhone scan):
+    # let that run fail softly and texture again without seam levelling
+    no_texture = lambda job: not os.path.exists(os.path.join(work, "scene_texture.obj"))
+    steps += [
+        jobs.Step("Clean old texture", lambda job: [os.remove(f) for f in glob.glob(
+            os.path.join(work, "scene_texture*"))], weight=0.1),
+        jobs.Step("Texture", mvs("TextureMesh", *texture), weight=10, ok_codes=(0, CRASH)),
+        jobs.Step("Texture (without seam levelling)", mvs("TextureMesh", *texture, "--global-seam-leveling", 0,
+                                                          "--local-seam-leveling", 0), weight=3, when=no_texture),
+    ]
     return steps
 
 

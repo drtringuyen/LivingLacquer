@@ -20,7 +20,7 @@ ALLOWED = (".jpg", ".jpeg", ".heic", ".heif", ".png", ".tif", ".tiff", ".dng", "
 MAX_BYTES = 300 * 1024 * 1024
 
 _srv = {"server": None, "thread": None, "token": "", "port": 0, "dest": "", "count": 0, "bytes": 0,
-        "last": 0.0, "log": [], "errors": 0}
+        "last": 0.0, "log": [], "errors": 0, "https": 0}
 
 
 def lan_ip():
@@ -73,11 +73,36 @@ document.getElementById('f').onchange=async e=>{
 </script></body></html>"""
 
 
+class _Server(ThreadingHTTPServer):
+    """The port to itself: http.server sets SO_REUSEADDR, which on Windows lets a second Blender bind the
+    same port and steal the phone's requests. Exclusive use instead, so start() moves to the next port."""
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "LivingLacquer"
 
     def log_message(self, *args):
         pass
+
+    def handle(self):
+        """Browsers that force https (Brave, Chrome's HTTPS-First) open a TLS handshake on this plain
+        http port. Spot it (first byte 0x16), count it for the panel's hint and close at once: a refused
+        connection lets some browsers fall back to http, a garbage answer never does."""
+        try:
+            first = self.request.recv(1, socket.MSG_PEEK)
+        except OSError:
+            return
+        if first == b"\x16":
+            _srv["https"] += 1
+            _log("the phone tried https:// - open the link in Safari")
+            return
+        super().handle()
 
     def _ok_token(self):
         q = parse_qs(urlparse(self.path).query)
@@ -146,7 +171,7 @@ def start(dest, port=8765):
     server = None
     for p in range(port, port + 20):            # next free port
         try:
-            server = ThreadingHTTPServer(("0.0.0.0", p), _Handler)
+            server = _Server(("0.0.0.0", p), _Handler)
             break
         except OSError:
             continue
@@ -154,7 +179,7 @@ def start(dest, port=8765):
         raise OSError(f"No free port from {port}")
     server.daemon_threads = True
     _srv.update(server=server, token=secrets.token_urlsafe(9), port=server.server_address[1], dest=dest,
-                count=0, bytes=0, last=0.0, errors=0, log=[])
+                count=0, bytes=0, last=0.0, errors=0, https=0, log=[])
     _srv["thread"] = threading.Thread(target=server.serve_forever, daemon=True)
     _srv["thread"].start()
     _log(f"Listening on {lan_ip()}:{_srv['port']}")
