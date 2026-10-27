@@ -8,10 +8,11 @@ import time
 import bpy
 
 from ..project import jobs, paths, state
-from . import convert, deps, masks, receiver
+from . import convert, deps, masks, orientation, preview, receiver
 
 # panel state, for the open .blend only
-STATUS = {"convert": "", "qr": "", "watch": False, "watch_sig": None, "watch_t": 0.0, "converted_at": 0}
+STATUS = {"convert": "", "qr": "", "watch": False, "watch_sig": None, "watch_t": 0.0, "converted_at": 0,
+          "orient": ""}
 QUIET_SECONDS = 8       # uploads / folder changes must stop this long before Convert & Sort starts
 
 
@@ -49,6 +50,8 @@ def convert_job(root, fmt="JPG", quality=95):
             json.dump({"quality": quality, "tasks": p["convert"]}, f)
 
     def on_line(job, line):
+        if _count_turn_line(job, line):
+            return
         if line.startswith(("OK\t", "FAIL\t")):
             job.data["n"] = job.data.get("n", 0) + 1
             job.data["fail"] = job.data.get("fail", 0) + line.startswith("FAIL")
@@ -65,14 +68,78 @@ def convert_job(root, fmt="JPG", quality=95):
         STATUS["converted_at"] = time.time()
         for note in p["notes"]:
             print("LivingLacquer Convert & Sort:", note)
+        if preview.STATE["show"] and not bpy.app.background:    # new photos: their thumbnails too
+            bpy.app.timers.register(lambda: preview.start(root) and None, first_interval=0.2)
 
     steps = [jobs.Step("Sort", sort, weight=0.2)]
     if total:
         worker = os.path.join(os.path.dirname(__file__), "worker.py")
         steps.append(jobs.Step(f"Convert {total} photo(s)", [sys.executable, worker, tasks_file],
                                env=deps.worker_env(), weight=max(total, 1)))
+    if orientation.settings(root)["apply"] == "PHOTOS":     # chosen once: new photos are turned as well
+        steps += turn_steps(root, quality)
     log = os.path.join(root, paths.SCAN, paths.OPEN, "logs", "convert.log")
     return jobs.Job("Convert & Sort", steps, on_done=done, log_path=log, on_line=on_line)
+
+
+def turn_steps(root, quality=95):
+    """Apply to Photos as job steps: turn every source photo whose turn is not 0 in the worker (its mask
+    too; the photo as it was kept in zz.Originals\\zz.Before_Turn), set the EXIF tag of the others to 1,
+    then forget the single-photo turns (they are in the pixels now). Progress lines say "TURN<TAB>"."""
+    tasks_file = os.path.join(tempfile.gettempdir(), f"livinglacquer_turn_{os.getpid()}.json")
+    estimate = max(len(masks.photos(root)), 1)
+
+    def prepare(job):
+        s = orientation.settings(root)
+        t = orientation.table(root, masks.photos(root))
+        _src, orig = _folders(root)
+        work = [[v["path"], v["turn"], os.path.join(orientation.backup_dir(orig), os.path.basename(v["path"])),
+                 masks.mask_for(root, v["path"])] for v in t.values() if v["turn"]]
+        cleared = 0
+        if s["mode"] != "STORED":
+            cleared = sum(orientation.clear_exif_orientation(v["path"]) for v in t.values()
+                          if not v["turn"] and v["tag"] != 1)
+        job.data.update(turn_total=len(work), turn_n=0, turn_fail=0, tag_cleared=cleared)
+        with open(tasks_file, "w", encoding="utf-8") as f:
+            json.dump({"quality": quality, "turn": work}, f)
+
+    def finish(job):
+        if os.path.exists(tasks_file):
+            os.remove(tasks_file)
+        s = orientation.settings(root)
+        s["turns"], s["apply"] = {}, "PHOTOS"
+        n_ok = job.data.get("turn_n", 0) - job.data.get("turn_fail", 0)
+        if n_ok:
+            s["photos_turned_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        orientation.save_settings(root, s)
+        if job.data.get("turn_total"):
+            fail = job.data.get("turn_fail", 0)
+            STATUS["orient"] = (f"{n_ok} photo(s) turned" + (f", {fail} failed" if fail else "")
+                                + (" · reconstruct again" if n_ok else ""))
+        if preview.STATE["show"]:
+            left = preview.update_icons(root)
+            for n, stem in enumerate(left):
+                yield n / max(len(left), 1), f"preview {stem}"
+                v = preview.STATE["table"][stem]
+                preview.STATE["icons"][stem] = preview._icon(stem, v["path"], v["turn"])
+
+    worker = os.path.join(os.path.dirname(__file__), "worker.py")
+    return [jobs.Step("Photo turns", prepare, weight=0.1),
+            jobs.Step("Turn photos", [sys.executable, worker, tasks_file], env=deps.worker_env(),
+                      weight=estimate, when=lambda job: job.data.get("turn_total", 0) > 0),
+            jobs.Step("Turned", finish, weight=0.1)]
+
+
+def _count_turn_line(job, line):
+    """on_line for the turn worker: count its OK / FAIL lines while the turn step runs."""
+    if "turn_total" not in job.data or job.data.get("turn_n", 0) >= job.data["turn_total"]:
+        return False
+    if line.startswith(("OK\t", "FAIL\t")):
+        job.data["turn_n"] += 1
+        job.data["turn_fail"] += line.startswith("FAIL")
+        job.step_pct = 100.0 * job.data["turn_n"] / max(job.data["turn_total"], 1)
+        job.detail = os.path.basename(line.split("\t")[1])
+    return True
 
 
 class LIVINGLACQUER_OT_PipeInstallDeps(bpy.types.Operator):
@@ -111,6 +178,134 @@ class LIVINGLACQUER_OT_PipeConvert(bpy.types.Operator):
             jobs.run_blocking(job)
         else:
             jobs.start(job)
+        return {"FINISHED"}
+
+
+MODE_TIPS = {
+    "AUTO": "Every photo as the phone showed it (its EXIF Orientation tag)",
+    "PORTRAIT": "Every photo upright as the phone showed it, and portrait: a photo the phone tagged landscape "
+                "(typical when it points straight down) is turned a further 90 deg",
+    "LANDSCAPE": "Every photo upright as the phone showed it, and landscape",
+    "STORED": "The pixels as the phone stored them, ignoring the EXIF tag (an iPhone stores portrait photos "
+              "sideways). What LivingLacquer did before 0.4.4",
+}
+
+
+class LIVINGLACQUER_OT_PipePhotoMode(bpy.types.Operator):
+    """How the photos stand (saved in livinglacquer.json). Nothing changes on disk until Apply to Photos
+    (step 2) or Turn Camera Photos (step 4)"""
+    bl_idname = "livinglacquer.pipe_photo_mode"
+    bl_label = "Photos Stand"
+    mode: bpy.props.EnumProperty(items=[(k, k.title(), v) for k, v in MODE_TIPS.items()])
+
+    @classmethod
+    def description(cls, context, props):
+        return MODE_TIPS[props.mode]
+
+    @classmethod
+    def poll(cls, context):
+        return bool(state.get()["root"]) and not jobs.busy()
+
+    def execute(self, context):
+        root = state.get()["root"]
+        s = orientation.settings(root)
+        s["mode"] = self.mode
+        orientation.save_settings(root, s)
+        if preview.STATE["show"]:
+            preview.start(root)
+        else:
+            preview.reload_table(root)
+        return {"FINISHED"}
+
+
+class LIVINGLACQUER_OT_PipePhotoTurn(bpy.types.Operator):
+    """Turn this photo 90 deg clockwise. Shift: 180 deg (upside down). Ctrl: 90 deg counter-clockwise.
+    Nothing changes on disk until Apply to Photos (step 2) or Turn Camera Photos (step 4)"""
+    bl_idname = "livinglacquer.pipe_photo_turn"
+    bl_label = "Turn Photo"
+    stem: bpy.props.StringProperty(description="Photo name without extension; empty = every photo")
+    deg: bpy.props.IntProperty(default=90)
+
+    @classmethod
+    def description(cls, context, props):
+        if not props.stem:
+            return "Turn every photo 180 deg (the whole set came out upside down)"
+        return f"{props.stem}: click turns it 90° clockwise, Shift+click 180° (upside down), Ctrl+click 90° " \
+               "counter-clockwise. Nothing changes on disk until Apply"
+
+    @classmethod
+    def poll(cls, context):
+        return bool(state.get()["root"]) and not jobs.busy()
+
+    def invoke(self, context, event):
+        if self.stem:
+            self.deg = 180 if event.shift else 270 if event.ctrl else 90
+        return self.execute(context)
+
+    def execute(self, context):
+        root = state.get()["root"]
+        s = orientation.settings(root)
+        stems = [self.stem] if self.stem else list(preview.STATE["table"] or masks.photos(root))
+        for stem in stems:
+            deg = (s["turns"].get(stem, 0) + self.deg) % 360
+            if deg:
+                s["turns"][stem] = deg
+            else:
+                s["turns"].pop(stem, None)
+        orientation.save_settings(root, s)
+        preview.start(root)
+        return {"FINISHED"}
+
+
+class LIVINGLACQUER_OT_PipePhotoPreview(bpy.types.Operator):
+    """Show / hide small pictures of the photos, turned the way they will stand"""
+    bl_idname = "livinglacquer.pipe_photo_preview"
+    bl_label = "Photo Preview"
+
+    @classmethod
+    def poll(cls, context):
+        return bool(state.get()["root"]) and not jobs.busy()
+
+    def execute(self, context):
+        if preview.STATE["show"]:
+            preview.STATE["show"] = False
+            return {"FINISHED"}
+        err = preview.start(state.get()["root"])
+        if err:
+            self.report({"ERROR"}, err)
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class LIVINGLACQUER_OT_PipeApplyOrientation(bpy.types.Operator):
+    """Turn the photos in zz.Source_Photos (and their masks) the way they stand in the preview, so every
+    engine sees them upright. The photos as they were go to zz.Originals\\zz.Before_Turn. Reconstruct again
+    afterwards. New photos are turned by Convert & Sort from now on"""
+    bl_idname = "livinglacquer.pipe_apply_orientation"
+    bl_label = "Apply to Photos"
+
+    @classmethod
+    def poll(cls, context):
+        return bool(state.get()["root"]) and not jobs.busy()
+
+    def invoke(self, context, event):
+        n = sum(1 for v in (preview.STATE["table"] or {}).values() if v["turn"])
+        return context.window_manager.invoke_confirm(
+            self, event, title="Apply to Photos",
+            message=f"Turn {n} photo(s) in zz.Source_Photos? The photos as they were are kept in "
+                    "zz.Originals\\zz.Before_Turn. The reconstruction has to run again.",
+            confirm_text="Turn Photos")
+
+    def execute(self, context):
+        root = state.get()["root"]
+        if deps.missing(["PIL"]):
+            self.report({"ERROR"}, "Install converters first (pillow)")
+            return {"CANCELLED"}
+        props = context.scene.livinglacquer_props
+        job = jobs.Job("Apply to Photos", turn_steps(root, props.pipe_quality),
+                       on_line=lambda j, line: _count_turn_line(j, line),
+                       log_path=os.path.join(root, paths.SCAN, paths.OPEN, "logs", "convert.log"))
+        jobs.run_or_start(job)
         return {"FINISHED"}
 
 
@@ -257,15 +452,18 @@ class LIVINGLACQUER_OT_PipeCheckMasks(bpy.types.Operator):
 
 
 classes = (LIVINGLACQUER_OT_PipeInstallDeps, LIVINGLACQUER_OT_PipeConvert, LIVINGLACQUER_OT_PipeReceive,
-           LIVINGLACQUER_OT_PipeMakeMasks, LIVINGLACQUER_OT_PipeCheckMasks)
+           LIVINGLACQUER_OT_PipeMakeMasks, LIVINGLACQUER_OT_PipeCheckMasks, LIVINGLACQUER_OT_PipePhotoMode,
+           LIVINGLACQUER_OT_PipePhotoTurn, LIVINGLACQUER_OT_PipePhotoPreview, LIVINGLACQUER_OT_PipeApplyOrientation)
 
 
 def register():
+    preview.register()
     for c in classes:
         bpy.utils.register_class(c)
 
 
 def unregister():
+    preview.unregister()
     receiver.stop()
     STATUS["watch"] = False
     if bpy.app.timers.is_registered(_watch_tick):

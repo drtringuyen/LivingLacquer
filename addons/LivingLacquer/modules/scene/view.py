@@ -7,7 +7,8 @@ from mathutils import Vector
 
 from . import human
 
-PIVOT_KEYS = ("ll_prev_pivot", "ll_prev_cursor", "ll_prev_active", "ll_prev_selected", "ll_prev_cams_hidden")
+PIVOT_KEYS = ("ll_prev_pivot", "ll_prev_cursor", "ll_prev_active", "ll_prev_selected", "ll_prev_cams_hidden",
+              "ll_solo_hidden")
 
 
 def scan_meshes():
@@ -73,8 +74,7 @@ def apply(scene):
         if rig_lc:
             rig_lc.exclude = False
             rig_lc.hide_viewport = False
-        if cam_lc:
-            cam_lc.hide_viewport = True
+        sync_cameras(scene)
         if rig is not None and vl.objects.get(rig.name):
             for o in vl.objects.selected:
                 o.select_set(False)
@@ -89,6 +89,7 @@ def apply(scene):
             cur.location = scene["ll_prev_cursor"]
             if cam_lc:
                 cam_lc.hide_viewport = bool(scene.get("ll_prev_cams_hidden", False))
+            _unhide_solo(scene, vl)
             if rig is not None:
                 rig.select_set(False)
             for name in json.loads(scene.get("ll_prev_selected", "[]")):
@@ -101,6 +102,62 @@ def apply(scene):
         for k in PIVOT_KEYS:
             if k in scene:
                 del scene[k]
+
+
+def looking_through(scene):
+    """The scan camera a 3D view looks through (the scene camera, in CAMERAS), or None."""
+    from .build import CAMERAS
+    cam = scene.camera
+    col = bpy.data.collections.get(CAMERAS)
+    if cam is None or col is None or cam.name not in col.objects:
+        return None
+    for win in bpy.context.window_manager.windows:
+        for area in win.screen.areas:
+            if area.type == "VIEW_3D" and area.spaces.active.region_3d.view_perspective == "CAMERA":
+                return cam
+    return None
+
+
+def sync_cameras(scene):
+    """While the toggle is on: the cameras are hidden, except the one a 3D view looks through - a hidden
+    camera draws no photo, and the Transform is moved against that photo. Changes only what differs."""
+    from .build import CAMERAS
+    vl = bpy.context.view_layer
+    cam_lc = _layer(vl, CAMERAS)
+    if cam_lc is None:
+        return
+    cam = looking_through(scene)
+    if cam is None:
+        if not cam_lc.hide_viewport:
+            cam_lc.hide_viewport = True
+        _unhide_solo(scene, vl)                 # the collection hides them all again
+        return
+    if cam_lc.hide_viewport:
+        cam_lc.hide_viewport = False
+    old = scene.get("ll_solo_hidden", "[]")
+    hidden = set(json.loads(old))
+    for o in cam_lc.collection.objects:
+        if o.type != "CAMERA" or vl.objects.get(o.name) is None:
+            continue
+        solo = o != cam
+        if o.hide_get() != solo:
+            o.hide_set(solo)
+        if solo:
+            hidden.add(o.name)
+        else:
+            hidden.discard(o.name)
+    if json.dumps(sorted(hidden)) != old:
+        scene["ll_solo_hidden"] = json.dumps(sorted(hidden))
+
+
+def _unhide_solo(scene, vl):
+    """Show the cameras sync_cameras hid one by one."""
+    for name in json.loads(scene.get("ll_solo_hidden", "[]")):
+        o = vl.objects.get(name)
+        if o is not None and o.hide_get():
+            o.hide_set(False)
+    if "ll_solo_hidden" in scene:
+        del scene["ll_solo_hidden"]
 
 
 def _enforce(scene):
@@ -118,6 +175,7 @@ def _tick():
     if props is None or not props.pipe_pivot_origin:
         return None
     _enforce(scene)
+    sync_cameras(scene)                         # Numpad 0 / leaving the camera view while it is on
     return 0.5
 
 

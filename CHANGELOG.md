@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.4 (2026-10-26)
+
+- **Why portrait iPhone photos came out sideways:** the iPhone stores the pixels landscape plus an EXIF Orientation tag ("turn 90° to show"). Convert & Sort kept JPGs as they were, and COLMAP, Metashape and Blender all ignore the tag, so the cameras were landscape and lay on their sides.
+- **"Photos stand" (step 2):** As Shot (the EXIF tag) / Portrait / Landscape / Stored (as before), saved in livinglacquer.json. **Preview** shows every photo turned the way it will stand. Clicking a photo's name turns it 90° right, Shift+click 180° (upside down: the tag is unreliable when the phone points straight down), Ctrl+click 90° left, and the ⟳ button turns the whole set 180°.
+- **Apply to Photos (step 2):** turns the photos in zz.Source_Photos and their masks (EXIF kept, tag set to 1, quality 95) and keeps the photos as they were in zz.Originals\zz.Before_Turn. Convert & Sort turns new photos too. Step 3 shows "reconstruct again".
+- **Turn Camera Photos (step 4):** no new reconstruction. It turns only the camera photos in 01.CAM_Photos and rolls each camera with its photo (resolution and lens shift too). Build, Undistort and Package keep them turned, and choosing Stored turns them back. It names cameras that look upside down next to the others.
+- **Auto Level stood sideways-stored sets upside down:** the cameras' up directions averaged out, so which way is up was a coin toss. It now goes by the cameras looking down at the object when their ups do not agree, and Turn Camera Photos levels again when the scene stands upside down.
+- **Look Through / ◀ ▶ with CAMERAS unticked in the outliner:** the camera "is not in View Layer" error is gone. Looking through a camera turns its collection on, and turns it back off (unticked / hidden, as it was) once no 3D view looks through a camera. Tested on Wajima Trap.
+- **Look Through + "Work on the Transform" together:** the toggle no longer drops the camera view and its photo. While a 3D view looks through a scan camera, only the other cameras are hidden, so the photo stays and G / R / S move the Transform against it. ◀ ▶ keep the toggle on and the Transform selected, and Look Through uses the scene camera then. Leaving the camera view hides all cameras again, the toggle off shows them all. Tested on Wajima Trap: on, ▶, scale, off.
+- **Odd lens shift warning:** Build Scene and Import Metashape Cameras warn, per sensor, when its lens shift is past 0.5 (the principal point off by more than half the photo's long side: most likely a bad calibration in Metashape). The shift itself is kept as solved, since MultiCamProject now projects the photos through it.
+- Removed the Turn 90° buttons from the first 0.4.4 build (they turned the scene, not the photos).
+- Checked on a copy of the BatTrang Disk (29 photos, Open Source): Turn Camera Photos gives 29 portrait cameras; the same mesh points sample the same colours in the turned photos (mean difference 1.5/255, JPEG); a rebuild keeps them and does not turn the files again. Apply to Photos: 29 photos 4284×5712 with tag 1 in 6 s, EXIF focal length kept, a 180° flip exact, backups made, Convert & Sort does not turn them twice. Auto Level now stands it upright with the photos stored or turned. Panel screenshot-tested in a separate Blender window.
+
 ## 0.4.3 (2026-10-26)
 
 - **Open Source aligns far more photos:** more features, guided matching and looser alignment thresholds. Teacup upright set: 30 of 30 photos instead of 13 (the side views of a plain lid had too few features with the defaults).

@@ -1,7 +1,9 @@
 """Auto Level & Center: place the Transform empty so the scan stands upright in the middle of the scene.
 
 Up = the normal of the plane the cameras lie on (they circle the object), its sign from the cameras'
-own up directions; on the Teapot this matches a hand-levelled result within 0.3 deg. The rotation is
+own up directions; on the Teapot this matches a hand-levelled result within 0.3 deg. When those do
+not agree (an iPhone set used as stored: every camera lies on its side) the cameras looking down at
+the object decide; on the BatTrang Disk the old rule stood it upside down. The rotation is
 the smallest one that brings that normal to +Z (no extra turn about Z). The mesh's bounding-box center
 goes to the world origin. The scale is kept. Only the Transform empty changes, never its children."""
 import numpy as np
@@ -18,6 +20,11 @@ def scan_up(cams):
     _, _, vt = np.linalg.svd(pos - pos.mean(0))
     up = Vector(vt[2]).normalized()
     cam_up = sum(((c.matrix_basis.to_3x3() @ Vector((0, 1, 0))).normalized() for c in cams), Vector())
+    if abs(up.dot(cam_up)) < 0.25 * len(cams):
+        # the cameras' ups do not agree (photos stored sideways / mixed): scans look down at the object
+        fwd = sum(((c.matrix_basis.to_3x3() @ Vector((0, 0, -1))).normalized() for c in cams), Vector())
+        if abs(up.dot(fwd)) >= 0.25 * len(cams):
+            return up if up.dot(fwd) < 0 else -up
     return -up if up.dot(cam_up) < 0 else up
 
 

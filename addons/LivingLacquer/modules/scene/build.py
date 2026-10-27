@@ -9,7 +9,7 @@ import bpy
 from mathutils import Matrix
 
 from ..linker.checks import index_photos, match_photo, pick_jpg
-from ..metashape.cameras import build_camera, get_collection, set_background
+from ..metashape.cameras import build_camera, get_collection, odd_shift_warnings, set_background
 from ..metashape.parse import parse_metashape_xml
 from ..metashape.photos import read_image_size, size_matches
 from ..project import marker, paths
@@ -25,6 +25,14 @@ CAMERAS = "CAMERAS"
 TRANSFORM = "Transform"
 TRANSFORM_COLLECTION = "TRANSFORM"
 FLIP = Matrix.Diagonal((1, -1, -1, 1))      # Metashape camera (Y down, Z forward) -> Blender camera
+TURN_RECORDS = "camera_photo_turns"         # livinglacquer.json: camera photos Turn Camera Photos turned
+
+
+def file_turn(records, label, path):
+    """Clockwise degrees the camera photo at path is turned: its record when the file is still the one
+    turned (same size and date), else 0 (undistorted / published again, as stored)."""
+    r = (records or {}).get(label)
+    return int(r[0]) if r and not photo_changed(r[1:], path) and os.path.exists(path) else 0
 
 
 def transform_empty(scene):
@@ -96,6 +104,7 @@ def camera_jobs(root, found):
     src = index_photos(found["source"], skip=(paths.ORIGINALS,))
     undist = index_photos(found["cam"])
     pinhole = published_undistorted(root)       # COLMAP: the published photos are the camera images
+    turned = (marker.read(root) or {}).get(TURN_RECORDS) or {}
     jobs, skipped = [], []
     for c in cams:
         cal = sensors[c["sensor"]]
@@ -104,7 +113,10 @@ def camera_jobs(root, found):
         out = pick_jpg(undist[c["label"]]) if c["label"] in undist else \
             os.path.join(found["cam"], c["label"] + ".jpg")
         check = out if pinhole else photo
-        if check and os.path.exists(check) and not size_matches(read_image_size(check), cal):
+        size = read_image_size(check) if check and os.path.exists(check) else None
+        if size and pinhole and file_turn(turned, c["label"], out) % 180:
+            size = size[::-1]                   # Turn Camera Photos stood it up: the sensor is as stored
+        if size and not size_matches(size, cal):
             skipped.append(c["label"] + " (photo does not fit its sensor)")
             continue
         jobs.append((c, cal, photo, out))
@@ -159,6 +171,7 @@ def build_scene(root):
         model.move_to(ob, col)                  # only in CAMERAS (MultiCamProject wants cameras only there)
         parent_to(ob, rig, c["matrix"] @ FLIP)
         ob["ll_sensor"] = c["sensor"]
+        ob["ll_turn"] = 0                       # as the XML has it; Turn Camera Photos rolls it again
         keep.add(ob.name)
     removed = 0
     for o in list(col.objects):                 # scan cameras no longer in the XML; other cameras stay
@@ -170,6 +183,7 @@ def build_scene(root):
     props.metashape_collection = col.name
     lines.append(f"{len(keep)} camera(s) in {col.name}, all under the '{TRANSFORM}' empty"
                  + (f", {removed} old one(s) removed" if removed else ""))
+    lines.extend(odd_shift_warnings(sensors, [c for c, *_ in jobs]))
     if skipped:
         lines.append(f"{len(skipped)} camera(s) skipped: " + ", ".join(skipped[:5]))
     no_photo = [c["label"] for c, _cal, photo, out in jobs if not photo and not os.path.exists(out)]
@@ -354,9 +368,14 @@ def publish(root):
         pdir = get("photos")
         if pdir and os.path.isdir(pdir):
             photos = [f for f in os.listdir(pdir) if f.lower().endswith(paths.PHOTO_EXTS)]
+            turned = m.get(TURN_RECORDS) or {}
             for n, f in enumerate(photos):
                 yield 0.4 + 0.6 * n / len(photos), f
-                copied += _copy(os.path.join(pdir, f), os.path.join(found["cam"], f))
+                src, dst = os.path.join(pdir, f), os.path.join(found["cam"], f)
+                label = os.path.splitext(f)[0]
+                if file_turn(turned, label, dst) and os.path.getmtime(src) <= os.path.getmtime(dst):
+                    continue                    # turned by Turn Camera Photos from this very result
+                copied += _copy(src, dst)
         m["published"] = {"engine": res.get("engine", ""), "date": datetime.now().isoformat(timespec="seconds"),
                           "undistorted": bool(res.get("undistorted")), "source": paths.rel(root, folder)}
         lines.append(f"Published the {res.get('engine', '')} result: {copied} file(s) copied"

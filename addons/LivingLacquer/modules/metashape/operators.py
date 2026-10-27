@@ -1,19 +1,27 @@
 import os
 
 import bpy
+from bpy.app.handlers import persistent
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy_extras.io_utils import ImportHelper
 
-from .cameras import build_camera, get_collection, set_view_camera
+from .cameras import (CAMS_SHOWN, build_camera, get_collection, odd_shift_warnings, set_view_camera,
+                      show_for_view, watch_view)
 from .parse import parse_metashape_xml
 from .photos import guess_image_dir, index_images, read_image_size, size_matches, undistort_image
 
 
-def _show_cameras(context):
-    """A hidden camera draws no background photo: leave "Work on the Transform" (it hides the cameras)."""
-    props = context.scene.livinglacquer_props
-    if getattr(props, "pipe_pivot_origin", False):
-        props.pipe_pivot_origin = False
+def _working_on_transform(context):
+    return getattr(context.scene.livinglacquer_props, "pipe_pivot_origin", False)
+
+
+def _look_through(context, ob):
+    """Look through ob. With "Work on the Transform" on it stays on (the Transform stays selected for
+    G / R / S): the other cameras are hidden, ob is shown, since a hidden camera draws no photo."""
+    set_view_camera(context, ob)
+    if _working_on_transform(context):
+        from ..scene.view import sync_cameras
+        sync_cameras(context.scene)
 
 
 class LIVINGLACQUER_OT_MetashapeImport(bpy.types.Operator, ImportHelper):
@@ -79,6 +87,7 @@ class LIVINGLACQUER_OT_MetashapeImport(bpy.types.Operator, ImportHelper):
     def _prepare(self, context):
         xml_path = bpy.path.abspath(self.filepath)
         self.sensors, cams = parse_metashape_xml(xml_path)
+        self.cams = cams
         labels = [c["label"] for c in cams]
         img_dir = bpy.path.abspath(self.image_dir) if self.image_dir else guess_image_dir(xml_path, labels)
         self.images = index_images(img_dir)
@@ -140,6 +149,10 @@ class LIVINGLACQUER_OT_MetashapeImport(bpy.types.Operator, ImportHelper):
         if self.skipped:
             msg += f", skipped {len(self.skipped)}: " + ", ".join(self.skipped[:5])
         self.report({"INFO"}, msg)
+        built = set(self.done)
+        for line in odd_shift_warnings(self.sensors, [c for c in self.cams if c["label"] in built]):
+            print("LivingLacquer Metashape import:", line)
+            self.report({"WARNING"}, line)
         if self.done:
             ob = bpy.data.objects.get(self.done[0])
             if ob:
@@ -188,6 +201,15 @@ class LIVINGLACQUER_OT_MetashapeImport(bpy.types.Operator, ImportHelper):
         return {"FINISHED"}
 
 
+def _camera(context):
+    """The active camera; while working on the Transform (it is the active one) the scene camera."""
+    ob = context.active_object
+    if ob is not None and ob.type == "CAMERA":
+        return ob
+    cam = context.scene.camera
+    return cam if _working_on_transform(context) and cam is not None and cam.type == "CAMERA" else None
+
+
 class LIVINGLACQUER_OT_MetashapeLookThrough(bpy.types.Operator):
     """Make the active camera the scene camera, match its photo resolution and look through it"""
     bl_idname = "livinglacquer.metashape_look_through"
@@ -195,11 +217,10 @@ class LIVINGLACQUER_OT_MetashapeLookThrough(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object and context.active_object.type == "CAMERA"
+        return _camera(context) is not None
 
     def execute(self, context):
-        _show_cameras(context)
-        set_view_camera(context, context.active_object)
+        _look_through(context, _camera(context))
         return {"FINISHED"}
 
 
@@ -211,7 +232,6 @@ class LIVINGLACQUER_OT_MetashapeStepCamera(bpy.types.Operator):
 
     def execute(self, context):
         sc = context.scene
-        _show_cameras(context)
         col = bpy.data.collections.get(sc.livinglacquer_props.metashape_collection)
         cams = sorted([o for o in col.objects if o.type == "CAMERA"], key=lambda o: o.name) if col else []
         if not cams:
@@ -219,11 +239,13 @@ class LIVINGLACQUER_OT_MetashapeStepCamera(bpy.types.Operator):
             return {"CANCELLED"}
         i = cams.index(sc.camera) if sc.camera in cams else -1
         ob = cams[(i + self.direction) % len(cams)]
-        for o in context.selected_objects:
-            o.select_set(False)
-        ob.select_set(True)
-        context.view_layer.objects.active = ob
-        set_view_camera(context, ob)
+        if not _working_on_transform(context):      # else the Transform stays selected for G / R / S
+            show_for_view(context, ob)             # an unticked CAMERAS: ob is not selectable before this
+            for o in context.selected_objects:
+                o.select_set(False)
+            ob.select_set(True)
+            context.view_layer.objects.active = ob
+        _look_through(context, ob)
         return {"FINISHED"}
 
 
@@ -257,13 +279,26 @@ classes = (
 )
 
 
+@persistent
+def _on_load(*_args):
+    """Saved while looking through a camera: keep watching, so the collections still go back off."""
+    scene = bpy.context.scene
+    if scene is not None and CAMS_SHOWN in scene and not bpy.app.timers.is_registered(watch_view):
+        bpy.app.timers.register(watch_view, first_interval=0.5, persistent=True)
+
+
 def register():
     for c in classes:
         bpy.utils.register_class(c)
     bpy.types.TOPBAR_MT_file_import.append(menu_import)
+    bpy.app.handlers.load_post.append(_on_load)
 
 
 def unregister():
+    if _on_load in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_on_load)
+    if bpy.app.timers.is_registered(watch_view):
+        bpy.app.timers.unregister(watch_view)
     bpy.types.TOPBAR_MT_file_import.remove(menu_import)
     for c in reversed(classes):
         bpy.utils.unregister_class(c)

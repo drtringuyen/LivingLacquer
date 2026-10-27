@@ -5,6 +5,7 @@ on the panel's refresh button, never while drawing (the folders may stream from 
 import json
 import os
 import time
+from datetime import datetime
 
 import bpy
 from bpy.app.handlers import persistent
@@ -174,6 +175,13 @@ def compute_stages(root):
 
     if out[4][0] == DONE and out[3][0] == TODO:       # photos added since the reconstruction
         out[4] = (STALE, "new photos are not in this reconstruction")
+    turned = ((m.get("orientation") or {}).get("photos_turned_at") or "")
+    if out[4][0] == DONE and turned and t_xml:        # Apply to Photos after the reconstruction
+        try:
+            if datetime.fromisoformat(turned).timestamp() > t_xml + 5:
+                out[4] = (STALE, "photos turned since the reconstruction: reconstruct again")
+        except ValueError:
+            pass
     for n in range(2, 9):                             # blocked by an earlier stage that is not done
         if any(out[r][0] not in (DONE, STALE) for r in STAGE_NEEDS[n]):
             # files left from an earlier run do not count before the scene is built (6, 7, 8)

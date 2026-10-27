@@ -5,6 +5,8 @@
 tasks.json: {"quality": 95, "tasks": [[src, dst], ...]}. Prints one line per photo:
 "OK<TAB>dst" or "FAIL<TAB>src<TAB>error", then "DONE". Same conversion as convert_images.py:
 EXIF rotation baked into the pixels, EXIF + ICC kept, JPG quality 95, no chroma subsampling.
+With "turn": [[photo, degrees clockwise, backup, mask or null], ...] (Apply to Photos), each photo is
+turned in place (the one before kept as backup, its mask turned too), EXIF Orientation = 1.
 """
 import json
 import os
@@ -60,12 +62,48 @@ def convert_one(src, dst, quality):
     return dst
 
 
+# clockwise degrees -> PIL transpose (PIL's ROTATE_90 is counter-clockwise)
+TURNS = {90: "ROTATE_270", 180: "ROTATE_180", 270: "ROTATE_90"}
+
+
+def turn_one(photo, deg, backup, mask, quality):
+    """Turn the stored pixels of photo (and its mask) deg clockwise, in place; EXIF Orientation = 1."""
+    import shutil
+    from PIL import Image
+    op = getattr(Image.Transpose, TURNS[deg])
+    with Image.open(photo) as im:
+        exif = im.getexif()
+        icc = im.info.get("icc_profile")
+        out = im.transpose(op)
+    exif[ORIENTATION_TAG] = 1
+    kw = {"exif": exif.tobytes()}
+    if icc:
+        kw["icc_profile"] = icc
+    stem, ext = os.path.splitext(photo)
+    tmp = stem + ".ll_tmp" + ext
+    if ext.lower() in (".jpg", ".jpeg"):
+        out.convert("RGB").save(tmp, "JPEG", quality=quality, subsampling=0, optimize=True, **kw)
+    else:
+        out.save(tmp, **kw)
+    if backup and not os.path.exists(backup):          # the first one is the phone's own: keep that
+        os.makedirs(os.path.dirname(backup), exist_ok=True)
+        shutil.copy2(photo, backup)
+    os.replace(tmp, photo)
+    if mask and os.path.exists(mask):
+        with Image.open(mask) as m:
+            turned = m.transpose(op)
+        turned.save(mask + ".ll_tmp.png")
+        os.replace(mask + ".ll_tmp.png", mask)
+    return photo
+
+
 def main():
     job = json.load(open(sys.argv[1], encoding="utf-8"))
-    tasks, quality = job["tasks"], job.get("quality", 95)
-    workers = max(1, min(len(tasks), (os.cpu_count() or 4) - 1))
+    tasks, turns, quality = job.get("tasks", []), job.get("turn", []), job.get("quality", 95)
+    workers = max(1, min(len(tasks) + len(turns), (os.cpu_count() or 4) - 1))
     with ProcessPoolExecutor(max_workers=workers) as pool:
         futs = {pool.submit(convert_one, s, d, quality): s for s, d in tasks}
+        futs.update({pool.submit(turn_one, p, deg, b, m, quality): p for p, deg, b, m in turns})
         for fut in as_completed(futs):
             try:
                 print("OK\t" + fut.result(), flush=True)

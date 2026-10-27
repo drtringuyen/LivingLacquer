@@ -1,7 +1,7 @@
 """Step 4 - Build Scene & Cameras (build, undistort + camera photos, looking through the cameras) and
 step 5 - Package."""
 from ..project.ui import big_row
-from . import icons, operators
+from . import icons, operators, turn
 
 
 def draw_step(number, layout, context):
@@ -23,6 +23,9 @@ def draw_step(number, layout, context):
         row.operator("livinglacquer.pipe_undistort", text="4. Undistort & Camera Photos", icon="IMAGE_BACKGROUND")
         row.operator("livinglacquer.pipe_undistort", text="", icon="FILE_REFRESH").redo_all = True
         layout.label(text=operators.status("undistort") or "Runs by itself after Build")
+        row = layout.row(align=True)
+        row.operator("livinglacquer.pipe_turn_cameras", text="Turn Camera Photos", icon="ORIENTATION_GIMBAL")
+        layout.label(text=turn.STATUS["text"] or "Stands them like step 2's Photos stand, no new reconstruction")
         _draw_cameras(layout, context, props)
     else:
         big_row(layout).operator("livinglacquer.pipe_package", text="5. Package: Publish", icon="PACKAGE")
@@ -42,7 +45,7 @@ def _draw_cameras(layout, context, props):
     if cam:
         box.label(text=f"Camera: {cam.name}", icon="OUTLINER_OB_CAMERA")
     if props.pipe_pivot_origin:
-        box.label(text="Camera photos are hidden while the Transform is being worked on", icon="INFO")
+        box.label(text="Working on the Transform: only the camera looked through shows", icon="INFO")
     row = box.row(align=True)
     row.prop(props, "metashape_bg_alpha", text="Photo opacity", slider=True)
     box.row(align=True).prop(props, "metashape_bg_depth", expand=True)

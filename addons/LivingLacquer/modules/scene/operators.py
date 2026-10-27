@@ -4,9 +4,10 @@ import os
 
 import bpy
 
+from ..ingest import orientation
 from ..metashape.photos import undistort_image
 from ..project import jobs, marker, paths, state
-from . import build, level, view
+from . import build, level, turn, view
 
 # last result line per step, for the panel
 STATUS = {"build": "", "undistort": "", "package": "", "blend": None}
@@ -53,7 +54,10 @@ def undistort_steps(root, overwrite, ext, quality):
         _status("undistort", f"Undistort: {data['done']} photo(s) made"
                 + (f", {data['failed']} failed" if data["failed"] else ""))
 
-    return [jobs.Step("Undistort & backgrounds", run, weight=10)]
+    steps = [jobs.Step("Undistort & backgrounds", run, weight=10)]
+    if orientation.settings(root)["apply"] == "CAMERAS":       # keep the camera photos standing
+        steps.append(jobs.Step("Turn camera photos", lambda job: turn.apply(root, quality), weight=2))
+    return steps
 
 
 def _undistort_args(context, redo_all=False):
@@ -214,8 +218,38 @@ class LIVINGLACQUER_OT_PipePackage(_PipeOp, bpy.types.Operator):
         return {"FINISHED"}
 
 
+class LIVINGLACQUER_OT_PipeTurnCameras(_PipeOp, bpy.types.Operator):
+    """Stand the camera photos the way step 2's "Photos stand" says and roll each camera with its photo,
+    without reconstructing again: only the camera photos in 01.CAM_Photos and the cameras change (the
+    source photos and the reconstruction stay as they are). Undistort / Build keep them turned"""
+    bl_idname = "livinglacquer.pipe_turn_cameras"
+    bl_label = "Turn Camera Photos"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return super().poll(context) and bpy.data.objects.get(build.TRANSFORM) is not None
+
+    def execute(self, context):
+        root = state.get()["root"]
+        quality = context.scene.livinglacquer_props.pipe_quality
+
+        def run(job):
+            yield from turn.apply(root, quality, force=True)
+            state.refresh()
+
+        def done(job):
+            if job.state != "done":
+                turn.STATUS["text"] = f"Turn Camera Photos: {job.error or job.state}"
+            elif not bpy.app.background:
+                show_first_camera()
+
+        jobs.run_or_start(jobs.Job("Turn Camera Photos", [jobs.Step("Turn camera photos", run)], on_done=done))
+        return {"FINISHED"}
+
+
 classes = (LIVINGLACQUER_OT_PipeBuildScene, LIVINGLACQUER_OT_PipeUndistort, LIVINGLACQUER_OT_PipePackage,
-           LIVINGLACQUER_OT_PipeAutoLevel)
+           LIVINGLACQUER_OT_PipeAutoLevel, LIVINGLACQUER_OT_PipeTurnCameras)
 
 
 def register():

@@ -1,8 +1,9 @@
 """Step 2 - Photos: receive (iPhone / watch folder) and convert & sort."""
 import bpy
 
+from ..project import jobs, state
 from ..project.ui import big_row
-from . import deps, masks, operators, receiver
+from . import deps, masks, operators, orientation, preview, receiver
 
 
 def draw_step(number, layout, context):
@@ -10,7 +11,66 @@ def draw_step(number, layout, context):
     layout.separator()
     _draw_convert(layout, context)
     layout.separator()
+    _draw_orientation(layout)
+    layout.separator()
     _draw_masks(layout, context)
+
+
+MODE_LABELS = (("AUTO", "As Shot"), ("PORTRAIT", "Portrait"), ("LANDSCAPE", "Landscape"), ("STORED", "Stored"))
+TURN_ICONS = {90: "LOOP_FORWARDS", 180: "FILE_REFRESH", 270: "LOOP_BACK"}
+
+
+def _draw_orientation(layout):
+    """How the photos stand: the choice, a preview turned that way, Apply to Photos."""
+    root = state.get()["root"]
+    if root and preview.STATE["root"] != root:
+        try:
+            preview.reload_table(root)
+        except Exception:
+            preview.STATE["root"] = root
+    s = preview.STATE["settings"] or {"mode": "STORED", "chosen": False, "apply": None}
+    t = preview.STATE["table"]
+    box = layout.box()
+    box.label(text="Photos stand", icon="ORIENTATION_GIMBAL")
+    row = box.row(align=True)
+    for mode, label in MODE_LABELS:
+        row.operator("livinglacquer.pipe_photo_mode", text=label, depress=s["mode"] == mode).mode = mode
+    row = box.row(align=True)
+    row.operator("livinglacquer.pipe_photo_preview", text="Preview", icon="IMAGE_DATA",
+                 depress=preview.STATE["show"])
+    row.operator("livinglacquer.pipe_photo_turn", text="", icon="FILE_REFRESH").stem = ""
+    row.operator("livinglacquer.pipe_apply_orientation", text="Apply to Photos", icon="CHECKMARK")
+    sideways = sum(1 for v in t.values() if v["tag"] not in (1, 2))
+    if not s["chosen"] and sideways:
+        col = box.column(align=True)
+        col.alert = True
+        col.label(text=f"{sideways} photo(s) stored sideways", icon="ERROR")
+        col.label(text="Choose how they stand, check the preview")
+    elif t:
+        col = box.column(align=True)
+        for part in (orientation.summary(t) or f"{len(t)} photos").split(" · "):
+            col.label(text=part)
+    job = jobs.current()
+    if preview.STATE["show"] and preview.STATE["icons"] and jobs.busy() and job.name != "Photo preview":
+        # the grid is tall: folded while a job runs, so the progress bar at the top stays in view
+        box.label(text=f"Preview folded while {job.name} runs", icon="TIME")
+    elif preview.STATE["show"] and preview.STATE["icons"]:
+        grid = box.grid_flow(row_major=True, columns=3, even_columns=True, even_rows=True, align=True)
+        for stem in sorted(preview.STATE["icons"]):
+            col = grid.column(align=True)
+            col.template_icon(icon_value=preview.STATE["icons"][stem], scale=4.0)
+            turn = t.get(stem, {}).get("turn", 0)
+            col.operator("livinglacquer.pipe_photo_turn", text=stem[-4:], icon=TURN_ICONS[turn] if turn else "NONE",
+                         depress=bool(s.get("turns", {}).get(stem))).stem = stem
+        col = box.column(align=True)
+        col.label(text="Click a name: 90° right", icon="INFO")
+        col.label(text="Shift: 180° (upside down) · Ctrl: 90° left")
+    if operators.STATUS["orient"]:
+        box.label(text=operators.STATUS["orient"])
+    elif s.get("apply") == "PHOTOS":
+        box.label(text="Applied to the photos; new ones are turned too", icon="CHECKMARK")
+    elif s.get("apply") == "CAMERAS":
+        box.label(text="Applied to the camera photos only (step 4)", icon="CHECKMARK")
 
 
 def _draw_receive(layout):
