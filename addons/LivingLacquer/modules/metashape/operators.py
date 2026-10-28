@@ -6,7 +6,7 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, St
 from bpy_extras.io_utils import ImportHelper
 
 from .cameras import (CAMS_SHOWN, build_camera, get_collection, odd_shift_warnings, set_view_camera,
-                      show_for_view, watch_view)
+                      show_for_view, to_width_fit, watch_view)
 from .parse import parse_metashape_xml
 from .photos import guess_image_dir, index_images, read_image_size, size_matches, undistort_image
 
@@ -279,9 +279,24 @@ classes = (
 )
 
 
+def width_fit_all():
+    """Every camera built before 0.4.5 measured on the photo's width (to_width_fit). Returns how many."""
+    return sum(to_width_fit(ob) for ob in bpy.data.objects
+               if ob.type == "CAMERA" and not ob.library and not ob.data.library)
+
+
+def _width_fit_timer():
+    n = width_fit_all()
+    if n:
+        print(f"[LivingLacquer] {n} camera(s) now measured on the photo width (Sensor Fit Horizontal)")
+    return None
+
+
 @persistent
 def _on_load(*_args):
-    """Saved while looking through a camera: keep watching, so the collections still go back off."""
+    """Saved while looking through a camera: keep watching, so the collections still go back off.
+    Cameras built before 0.4.5 get Sensor Fit Horizontal on the photo's width."""
+    _width_fit_timer()
     scene = bpy.context.scene
     if scene is not None and CAMS_SHOWN in scene and not bpy.app.timers.is_registered(watch_view):
         bpy.app.timers.register(watch_view, first_interval=0.5, persistent=True)
@@ -292,6 +307,7 @@ def register():
         bpy.utils.register_class(c)
     bpy.types.TOPBAR_MT_file_import.append(menu_import)
     bpy.app.handlers.load_post.append(_on_load)
+    bpy.app.timers.register(_width_fit_timer, first_interval=0.2)     # the file open while installing
 
 
 def unregister():
@@ -299,6 +315,8 @@ def unregister():
         bpy.app.handlers.load_post.remove(_on_load)
     if bpy.app.timers.is_registered(watch_view):
         bpy.app.timers.unregister(watch_view)
+    if bpy.app.timers.is_registered(_width_fit_timer):
+        bpy.app.timers.unregister(_width_fit_timer)
     bpy.types.TOPBAR_MT_file_import.remove(menu_import)
     for c in reversed(classes):
         bpy.utils.unregister_class(c)

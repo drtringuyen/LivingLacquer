@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.5 (2026-10-28)
+
+- **Portrait cameras now line up with the mesh after MultiCamProject looks through them.** Build used to measure a portrait camera's lens and shift on the photo's height (Sensor Fit Vertical). MultiCamProject sets every camera it looks through to Sensor Fit Horizontal without converting, so the frame came out 1.33x too big and the photo did not sit on the mesh (BatTrang Teapot, IMG_3248).
+- **Every camera is now Sensor Fit Horizontal, with lens and shift measured on the photo's width.** Portrait IMG_3248: 34.09 mm instead of 25.57 mm on Vertical. A landscape camera does not change.
+- **Turn Camera Photos** keeps Horizontal and scales lens and shift to the new width on a 90° turn.
+- **Older files are converted once on open** (cameras with the ll_width_fit key are left alone), also cameras MultiCamProject already switched to Horizontal.
+- The odd lens shift warning still measures on the long side, so its 0.5 limit is unchanged.
+
 ## 0.4.4 (2026-10-26)
 
 - **Why portrait iPhone photos came out sideways:** the iPhone stores the pixels landscape plus an EXIF Orientation tag ("turn 90° to show"). Convert & Sort kept JPGs as they were, and COLMAP, Metashape and Blender all ignore the tag, so the cameras were landscape and lay on their sides.

@@ -9,6 +9,7 @@ from .parse import SENSOR_WIDTH_MM
 
 CAMS_SHOWN = "ll_cams_shown"    # scene key: collections show_for_view turned on -> [exclude, hidden] before
 SHIFT_LIMIT = 0.5               # lens shift past this (half the photo's long side) is no plausible lens
+WIDTH_FIT = "ll_width_fit"      # camera key: lens and shift measured on the photo's width (0.4.5 on)
 
 
 def get_collection(scene, name):
@@ -33,10 +34,30 @@ def set_background(cd, bg_path, alpha, depth, relative=False):
         bg.display_depth = depth
 
 
-def lens_shift(cal):
-    """(shift_x, shift_y) of a sensor: Metashape's principal point offset cx / cy in pixels over the photo's long side."""
-    big = max(cal["w"], cal["h"])
+def lens_shift(cal, side=None):
+    """(shift_x, shift_y) of a sensor: Metashape's principal point offset cx / cy in pixels over side
+    (the photo's long side when None)."""
+    big = side or max(cal["w"], cal["h"])
     return -cal.get("cx", 0.0) / big, cal.get("cy", 0.0) / big
+
+
+def to_width_fit(ob):
+    """A camera built before 0.4.5 has lens and shift measured on the photo's long side (Sensor Fit
+    Vertical for a portrait photo; MultiCamProject may have switched it to Horizontal since, which
+    leaves the frame 1.33x too big). Measure them on the width with Sensor Fit Horizontal, the way
+    Build does now. True when it changed the camera."""
+    res = ob.get("metashape_res") if ob.type == "CAMERA" else None
+    if not res or ob.get(WIDTH_FIT):
+        return False
+    w, h = int(res[0]), int(res[1])
+    k = max(w, h) / w
+    cd = ob.data
+    cd.sensor_fit = "HORIZONTAL"
+    cd.lens *= k
+    cd.shift_x *= k
+    cd.shift_y *= k
+    ob[WIDTH_FIT] = True
+    return True
 
 
 def odd_shift_warnings(sensors, cams):
@@ -64,14 +85,15 @@ def build_camera(cam, cal, bg_path, col, opts):
     """Create or update the camera named after the Metashape label, with its photo as background."""
     label = cam["label"]
     w, h = cal["w"], cal["h"]
-    big = max(w, h)
 
+    # always Horizontal on the photo's width, also for a portrait photo: MultiCamProject projects
+    # through the width and switches any camera it looks through to Horizontal
     cd = bpy.data.cameras.get(label) or bpy.data.cameras.new(label)
-    cd.sensor_fit = "HORIZONTAL" if w >= h else "VERTICAL"
+    cd.sensor_fit = "HORIZONTAL"
     cd.sensor_width = SENSOR_WIDTH_MM
     cd.sensor_height = SENSOR_WIDTH_MM
-    cd.lens = cal["f"] * SENSOR_WIDTH_MM / big
-    cd.shift_x, cd.shift_y = lens_shift(cal)    # never zero it: MultiCamProject projects through it
+    cd.lens = cal["f"] * SENSOR_WIDTH_MM / w
+    cd.shift_x, cd.shift_y = lens_shift(cal, w)     # never zero it: MultiCamProject projects through it
     cd.clip_start = opts["clip_start"]
     cd.clip_end = opts["clip_end"]
     cd.display_size = opts["display_size"]
@@ -88,6 +110,7 @@ def build_camera(cam, cal, bg_path, col, opts):
     # Metashape camera: X right, Y down, Z forward  ->  Blender camera: X right, Y up, -Z forward
     ob.matrix_world = cam["matrix"] @ Matrix.Diagonal((1, -1, -1, 1))
     ob["metashape_res"] = [w, h]
+    ob[WIDTH_FIT] = True
     ob["metashape_photo"] = (bpy.path.relpath(bg_path) if bg_path and opts.get("relative") else bg_path) or ""
     return ob
 

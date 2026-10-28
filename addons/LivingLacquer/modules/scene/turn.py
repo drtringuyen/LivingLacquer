@@ -2,7 +2,8 @@
 and the cameras, so the reconstruction (made from the photos as stored) stays as it is.
 
 A camera photo turned d deg clockwise is the same picture seen by the camera rolled d deg about its
-view axis: matrix @ Rz(d), width / height swapped for 90 / 270, the lens shift turned with it. Each
+view axis: matrix @ Rz(d), width / height swapped for 90 / 270, the lens shift turned with it
+and lens and shift scaled to the new width (Sensor Fit stays Horizontal). Each
 camera remembers its roll (ll_turn; Build starts from the XML, so 0) and livinglacquer.json
 "camera_photo_turns" remembers which camera photo files are turned ({camera: [deg, size, mtime]}), so a
 photo undistorted or published again (as stored) is turned again and one already turned is left alone."""
@@ -14,6 +15,7 @@ from mathutils import Matrix, Vector
 
 from ..ingest import deps, masks, orientation
 from ..linker.checks import match_photo
+from ..metashape.cameras import to_width_fit
 from ..project import marker
 from . import build, level
 
@@ -35,6 +37,7 @@ def turn_camera(ob, deg):
     delta = (deg - int(ob.get("ll_turn", 0))) % 360
     if not delta:
         return False
+    to_width_fit(ob)
     ob.matrix_basis = ob.matrix_basis @ Matrix.Rotation(math.radians(delta), 4, "Z")
     cd = ob.data
     sx, sy = cd.shift_x, cd.shift_y
@@ -42,9 +45,12 @@ def turn_camera(ob, deg):
     cd.shift_x, cd.shift_y = c * sx - s * sy, s * sx + c * sy
     res = ob.get("metashape_res")
     if res and delta % 180:
-        w, h = int(res[1]), int(res[0])
-        ob["metashape_res"] = [w, h]
-        cd.sensor_fit = "HORIZONTAL" if w >= h else "VERTICAL"
+        # lens and shift are measured on the photo's width (Sensor Fit Horizontal), which is now the old height
+        k = int(res[0]) / int(res[1])
+        cd.lens *= k
+        cd.shift_x *= k
+        cd.shift_y *= k
+        ob["metashape_res"] = [int(res[1]), int(res[0])]
     ob["ll_turn"] = deg
     return True
 
