@@ -17,8 +17,8 @@ import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
 
-from . import budget, check, core, paint, panel_icons, thumbs
-from ..project import viewbar
+from . import budget, check, core, paint, panel_icons, poly_cut, thumbs
+from ..project import prefs, viewbar
 
 WIDTH, HEIGHT = 430, 520    # the default size at UI scale 1
 MIN_WIDTH, MIN_HEIGHT = 360, 270
@@ -47,7 +47,7 @@ HINT_CORNER = 14            # the corner brackets' arms
 SECTION_H, SECTION_ROW, LINE_H = 20, 24, 16
 SECTIONS = ("View", "Model", "Budget", "Textures", "Recorder")      # rb.panel_open's order
 OPS = {"base": ("livinglacquer", "rebuild_base_disc"), "extrude": ("livinglacquer", "uv_extrude"),
-       "hole": ("livinglacquer", "close_hole"), "seam": ("livinglacquer", "rebuild_seam_select"),
+       "tube": ("livinglacquer", "uv_tube"), "poly": ("livinglacquer", "poly_cut_tool"),
        "measure": ("livinglacquer", "rebuild_budget"), "check": ("livinglacquer", "rebuild_check_textures"),
        "fix": ("livinglacquer", "rebuild_fix_textures"), "edit_alb": ("livinglacquer", "alb_edit"),
        "rec_start": ("meshbuildtimelapse", "start"), "rec_pause": ("meshbuildtimelapse", "pause_resume"),
@@ -115,7 +115,9 @@ def _section_body(context, rb, name):
         return ([[("ov_overlays", "Overlays"), ("ov_faces", "Faces"), ("ov_wire", "Wire"), ("wire_opacity", "")],
                  [("col:" + c, COLLECTION_LABELS[c]) for c, _i in viewbar.COLLECTIONS]], [])
     if name == "Model":
-        return [[("base", "From Base"), ("extrude", "uvExtrude"), ("hole", "Close Hole"), ("seam", "Seam Select")]], []
+        return [[("mesh:ORG", "ORG_"), ("mesh:FINAL", "OBJ_")],
+                [("base", "From Base"), ("tube", "uvTube"), ("extrude", "uvExtrude"), ("poly", "Poly Cut")],
+                [("pref:auto_seams", "Auto Seams"), ("pref:auto_uv", "Auto UV")]], []
     if name == "Budget":
         r = budget.ROWS
         rows = [[("budget", f"Budget {budget.short(rb.tri_budget)}"), ("measure", "Measure")]]
@@ -343,6 +345,12 @@ def press_button(context, action):
         _size[1] += sections_height(context) - before    # the grids keep their size
     elif action.startswith("col:"):
         bpy.ops.livinglacquer.toggle_collection(name=action[4:])
+    elif action.startswith("mesh:"):
+        poly_cut.switch_to(context, action[5:])
+    elif action.startswith("pref:"):
+        p = prefs.get()
+        if p is not None:
+            setattr(p, action[5:], not getattr(p, action[5:]))
     elif action in {"ov_overlays", "ov_faces", "ov_wire"}:
         ov = _overlay(context)
         if ov is not None:
@@ -499,6 +507,11 @@ def _draw_opacity(context, rect, size):
 
 
 def _button_on(action, rb, context):
+    if action.startswith("mesh:"):
+        return rb.edit_mesh == action[5:]
+    if action.startswith("pref:"):
+        p = prefs.get()
+        return p is not None and getattr(p, action[5:])
     if action in {"ov_overlays", "ov_faces", "ov_wire"}:
         ov = _overlay(context)
         return ov is not None and getattr(ov, {"ov_overlays": "show_overlays", "ov_faces": "show_face_orientation",
@@ -554,6 +567,7 @@ def _draw():
     region = context.region
     if region is None or not active(context):
         return
+    poly_cut.follow_active()
     rb = context.scene.livinglacquer_rebuild
     cams = core.cameras()
     ui = context.preferences.system.ui_scale
@@ -569,6 +583,8 @@ def _draw():
     for action, rect, text in lay["buttons"]:
         grey = (action in {"brush", "fill", "erase"} and not ready) or (action in {"fill", "erase"} and rb.photo not in cams)
         if action in OPS and not _op(action).poll():
+            grey = True
+        if action == "mesh:FINAL" and core.final_mesh(rb) is None:
             grey = True
         if action.startswith("sec:"):
             _draw_section_header(rb, action[4:], rect, size, ui)

@@ -5,8 +5,8 @@
 - **New step 5, Mesh Rebuild (module "rebuild"); Package is now step 6 and waits for it.**
   - **5a Remesh / Retopo.**
     - Remesh copies OBJ_<Object> as REM_<Object> with a Decimate modifier.
-    - Retopo makes an empty RTP_<Object> on the scan, or takes a picked or active mesh.
-    - New REM_ / RTP_ objects go into the EXPORT collection (made when missing), the one MultiCamProject uses.
+    - Retopo makes an empty OBJ_<Object> on the scan, or takes a picked or active mesh.
+    - New OBJ_ objects go into the EXPORT collection (made when missing), the one MultiCamProject uses.
     - Either way the object gets uv_normal and the materials LL_<name> (BAo_ with BAp_ over it, by BAp_'s alpha) and MAT_<name> (ALB_ + NOR_), with a Paint / Final switch.
     - **Bake BAo_ from Scan** bakes the scan's colour at the chosen resolution (1K-8K), with a Cage distance.
   - **5b Paint from Photos into BAp_.**
@@ -25,8 +25,13 @@
 - **The scan is ORG_<Object> in the Original Mesh collection** (its files stay OBJ_<Object>.*); older files convert once on open.
 - **NOR_ High-pass** from ALB_ (ported from MultiCamProject), or baked from the scan. ALB_ and NOR_ have a write-current popup.
 - **Mesh Recorder** under 5a when MeshBuildTimelapse is on. Shift+Q opens the photo panel under the mouse.
-- **From Base (5a Retopo):** a filled circle: the best fit of the vertices selected in Edit Mode (the ring of a spout, even part of it), or with nothing selected the bounding box of the scan's lowest 2%, from any mode. Ready for **uvExtrude**, which now finishes with uv_normal unwrapped along its seams. **Close Hole** comes along from MultiCamProject.
-- **Seam Select (5a):** click an outline, double click closes it and adds (A) or subtracts (S) the faces the view sees; Enter marks a seam on the selection's border and keeps the tool open.
+- **From Base (5a Retopo):** a filled circle: the best fit of the vertices selected in Edit Mode (the ring of a spout, even part of it), or with nothing selected the bounding box of the scan's lowest 2%, from any mode. Ready for **uvExtrude**, which now finishes with uv_normal unwrapped along its seams. Each new extrude's wall seam goes on from the seam of the walls below. **Close Hole** comes along from MultiCamProject.
+- **Auto Seams (on by default, in the panel's Model section and the add-on's Preferences):** Blender's own tools finish with clean seams. Bevel: a bevelled seam keeps one rail of its strip instead of two: the left one seen from outside, on a level strip the lower; where several seams meet on one strip, both rails stay. Extrude (E) and Inset (I) in face select: one seam across the walls or strip, going on from the seam below, and no ring seams except where you marked them. Undo and redo keep these seams.
+- **Mark Seam (Edit Mode's right-click menu, face select, M while the menu is open):** the border of the selected faces becomes a seam ring.
+- **Auto UV (off by default, next to Auto Seams):** with Auto Seams, uv_normal is unwrapped after each of them, over the UVs it had.
+- **Clean Floating** (Ctrl+Shift+L, Edit Mode), from MultiCamProject: keeps the mesh linked to the selection, deletes the floating pieces and loose vertices and edges.
+- **The ORG_ / OBJ_ switch follows the mesh you select**, and pressing it selects that mesh. OBJ_ is greyed out until the final mesh exists; it is called OBJ_<Object> (the scan's files keep their OBJ_ names).
+- **Poly Cut** (Model section, Ctrl+Shift+K): Sculpt Mode on the mesh the ORG_ / OBJ_ switch names, a toolbar tool; Ctrl+click starts an outline. Clicking the first point (it lights up green) or a double click closes it into a path over the mesh's edges: Set Boundary as Seam, Add to Selection, Remove from Selection, Close Hole. Enter makes a path over the mesh's own edges through the points, shortest on the surface, shown in yellow and adding no geometry: Mark as Seam or Cancel. The selection is a temporary face set. **uvTube** comes along from MultiCamProject; From Base asks how many segments.
 - **Triangle Budget (5a):** split over the EXPORT collection's meshes by surface area, measured on the button.
 - **Check Textures / Fix** (5c Folders): textures outside their folder and copies in a second 01.Bake / 02.Overrides; Fix relinks them and sends the copies to the Recycle Bin.
 - **Edit ALB_** (Image Editor): Lasso, Fill, Patch, Move and Liquify in one session, switched by key, saved over ALB_. To paint on from the result, write ALB_ over BAo_ in 5c.

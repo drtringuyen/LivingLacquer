@@ -35,7 +35,7 @@ def _confirm(op, context, event, path, what):
 # ---------------------------------------------------------------- 5a
 
 class LIVINGLACQUER_OT_RebuildRemesh(bpy.types.Operator):
-    """Copy the scanned mesh ORG_<Object> as REM_<Object> with a Decimate modifier, the LL_ / MAT_
+    """Copy the scanned mesh ORG_<Object> as OBJ_<Object> with a Decimate modifier, the LL_ / MAT_
     materials and uv_normal (a copy made before is replaced)"""
     bl_idname = "livinglacquer.rebuild_remesh"
     bl_label = "Remesh"
@@ -46,7 +46,7 @@ class LIVINGLACQUER_OT_RebuildRemesh(bpy.types.Operator):
         return core.scan_mesh() is not None and context.mode == "OBJECT"
 
     def invoke(self, context, event):
-        old = bpy.data.objects.get(f"REM_{core.object_name()}")
+        old = bpy.data.objects.get(f"OBJ_{core.object_name()}")
         if old is None:
             return self.execute(context)
         return context.window_manager.invoke_confirm(self, event, title=f"Replace {old.name}?",
@@ -61,7 +61,7 @@ class LIVINGLACQUER_OT_RebuildRemesh(bpy.types.Operator):
 
 
 class LIVINGLACQUER_OT_RebuildRetopoNew(bpy.types.Operator):
-    """Start an empty mesh RTP_<Object> on the scan, with the LL_ / MAT_ materials and uv_normal"""
+    """Start an empty mesh OBJ_<Object> on the scan, with the LL_ / MAT_ materials and uv_normal"""
     bl_idname = "livinglacquer.rebuild_retopo_new"
     bl_label = "New Retopo Object"
     bl_options = {"REGISTER", "UNDO"}
@@ -137,6 +137,12 @@ class LIVINGLACQUER_OT_RebuildBaseDisc(bpy.types.Operator):
     bl_label = "Create From Base"
     bl_options = {"REGISTER", "UNDO"}
 
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=220, confirm_text="Create")
+
+    def draw(self, context):
+        self.layout.prop(_rb(context), "base_segments")
+
     def execute(self, context):
         selected = None
         if context.mode == "EDIT_MESH":
@@ -149,7 +155,7 @@ class LIVINGLACQUER_OT_RebuildBaseDisc(bpy.types.Operator):
                 selected = core.world_points(obj, flags)
         if context.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
-        ob = core.base_disc(_rb(context), selected)
+        ob = core.base_disc(_rb(context), selected, segments=_rb(context).base_segments)
         if ob is None:
             self.report({"WARNING"}, "Select at least 3 vertices that are not in one line" if selected is not None
                         else "No scan mesh yet: Build Scene first")

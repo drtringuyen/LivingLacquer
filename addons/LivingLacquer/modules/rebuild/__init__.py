@@ -12,7 +12,7 @@ Edit ALB_           Lasso, Fill, Patch, Move, Liquify in the Image Editor, saved
 5c Bake & Export    ALB_ / NOR_ each Bake (01.Bake) or Load (02.Overrides), the finished ALB_ over BAo_ or
                     into 02.Overrides (asked), Lock & Export FBX.
 """
-from . import alb_editor, operators, photo_panel, props, seam_select, uv_tools
+from . import alb_editor, auto_seams, operators, photo_panel, poly_cut, props, uv_tools, uv_tube
 
 
 def register():
@@ -21,11 +21,15 @@ def register():
     alb_editor.register()
     photo_panel.register()
     uv_tools.register()
-    seam_select.register()
+    uv_tube.register()
+    poly_cut.register()
+    auto_seams.register()
 
 
 def unregister():
-    seam_select.unregister()
+    auto_seams.unregister()
+    poly_cut.unregister()
+    uv_tube.unregister()
     uv_tools.unregister()
     photo_panel.unregister()
     alb_editor.unregister()

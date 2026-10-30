@@ -16,7 +16,7 @@ import numpy as np
 from gpu_extras.batch import batch_for_shader
 
 from . import core, inpaint_fill as ipf
-from .seam_select import inside_polygon
+from .poly_cut import inside_polygon
 
 UNDO_STEPS = 20
 REDRAW_EVERY = 0.1          # seconds between image updates during a Liquify stroke (a 4K update takes a moment)

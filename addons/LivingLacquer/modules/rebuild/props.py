@@ -109,6 +109,12 @@ class LIVINGLACQUER_PG_Rebuild(bpy.types.PropertyGroup):
     # 5b: the photos and the paint tools
     photo: StringProperty(name="Photo", description="The camera whose photo is painted from")
     favorites: CollectionProperty(type=LIVINGLACQUER_PG_RebuildName)
+    edit_mesh: EnumProperty(
+        name="Mesh", items=[("ORG", "ORG_", "Work on the original scan"),
+                            ("FINAL", "OBJ_", "Work on the final mesh (the remeshed copy or the retopo)")],
+        default="ORG", description="The mesh Poly Cut works on")
+    base_segments: IntProperty(name="Segments", default=32, min=3, soft_max=256,
+                               description="How many vertices the circle of From Base has")
     panel_open: BoolVectorProperty(name="Photo Panel Sections", size=5, default=(False,) * 5,
                                    description="Which of the photo panel's sections are open")
     panel_rect: IntVectorProperty(name="Photo Panel Rectangle", size=4, default=(0, 0, 0, 0),

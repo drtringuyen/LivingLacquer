@@ -34,8 +34,8 @@ def migrate_scan():
     root = state.get()["root"]
     obj = paths.object_name(root) if root else ""
     old = bpy.data.objects.get(f"OBJ_{obj}") if obj else None
-    if old is None or bpy.data.objects.get(paths.scan_name(obj)) is not None:
-        return None
+    if old is None or old.get("ll_rebuild") or bpy.data.objects.get(paths.scan_name(obj)) is not None:
+        return None                 # ll_rebuild: OBJ_ is now the final mesh
     old.name = paths.scan_name(obj)
     old.data.name = old.name
     geo = get_collection(bpy.context.scene, ORIGINALS)

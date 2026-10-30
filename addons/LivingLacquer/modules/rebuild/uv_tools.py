@@ -6,10 +6,10 @@ n-gon, flattened onto its best plane, then triangulated (Beauty).
 uvExtrude: the selection's seams are cleared and its boundary marked, Blender's own
 extrude-along-normal runs (Enter / click confirms, Esc / right-click cancels - and a cancel
 takes everything back, seams included). After it: the base ring is a seam, the top ring is
-not (the cap unfolds with its walls), and each closed wall ring gets one seam on a random
-vertical edge, so cap + walls unfold as one island; uv_normal is unwrapped along the seams right away.
+not (the cap unfolds with its walls), and each closed wall ring gets one seam on a vertical
+edge: going on from the seam of the walls below when there is one, else a random edge, so cap + walls unfold as one island; uv_normal is unwrapped along the seams right away.
 
-From MultiCamProject's uv_mesh module. Seam Select uses rim()."""
+From MultiCamProject's uv_mesh module. Poly Cut uses rim() and close_holes()."""
 import random
 
 import bmesh
@@ -169,19 +169,29 @@ def rim(faces):
 
 
 def prepare_seams(bm):
-    """Before the extrusion: no seam inside the selection, its boundary a seam."""
+    """Before the extrusion: no seam inside the selection, its boundary a seam. Returns the indices of the boundary's
+    vertices where a seam of the walls below ends: the new walls' seam goes on from them."""
     sel = [f for f in bm.faces if f.select]
+    boundary = rim(sel)
+    corners = {v for e in boundary for v in e.verts}
+    inside = {e for f in sel for e in f.edges}
+    bm.verts.index_update()
+    below = {v.index for v in corners
+             if any(e.seam and e not in boundary and e not in inside for e in v.link_edges)}
     for f in sel:
         for e in f.edges:
             e.seam = False
-    for e in rim(sel):
+    for e in boundary:
         e.seam = True
+    return below
 
 
-def wall_seams(bm, rng=random):
-    """After the extrusion (the moved top faces selected): base ring seamed, top ring not,
-    one random vertical seam per closed wall ring. Returns the number of rings cut."""
-    top = {f for f in bm.faces if f.select}
+def wall_seams(bm, rng=random, below=(), top=None, mark_base=True):
+    """After the extrusion (the moved top faces selected, or `top`): base ring seamed (without mark_base: as it was),
+    top ring not, one vertical seam per closed wall ring: the edge rising from a vertex of below (prepare_seams), else
+    a random one. Returns the number of rings cut."""
+    bm.verts.index_update()
+    top = {f for f in bm.faces if f.select} if top is None else top
     border = {e for e in rim(top) if len(e.link_faces) > 1}
     walls, vertical = set(), set()
     for e in border:
@@ -196,14 +206,15 @@ def wall_seams(bm, rng=random):
                     continue
                 shared = tv & set(g.verts)
                 if not shared:
-                    g.seam = True           # the base edge, across from the top
+                    g.seam = g.seam or mark_base           # the base edge, across from the top
                 else:
                     vertical.add(g)
     cut = 0
     for ring in _regions(walls):
         sides = [g for g in vertical if any(f in ring for f in g.link_faces)]
         if sides and all(sum(f in ring for f in g.link_faces) == 2 for g in sides):
-            rng.choice(sides).seam = True       # a closed ring: cut it once
+            on = [g for g in sides if any(v.index in below for v in g.verts)]
+            (on[0] if on else rng.choice(sides)).seam = True      # a closed ring: cut it once
             cut += 1
     return cut
 
@@ -249,7 +260,7 @@ class LIVINGLACQUER_OT_UVExtrude(bpy.types.Operator):
         bm = bmesh.from_edit_mesh(obj.data)
         self._backup = bm.copy()          # Esc puts this back (seams and all)
         self._obj = obj.name
-        prepare_seams(bm)
+        self._below = prepare_seams(bm)
         bmesh.update_edit_mesh(obj.data)
         bpy.ops.mesh.extrude_region(use_normal_flip=False)
         bm = bmesh.from_edit_mesh(obj.data)
@@ -283,7 +294,7 @@ class LIVINGLACQUER_OT_UVExtrude(bpy.types.Operator):
             self.report({'INFO'}, "uvExtrude cancelled")
             return {'CANCELLED'}
         self._backup.free()
-        cut = wall_seams(bm)
+        cut = wall_seams(bm, below=self._below)
         bmesh.update_edit_mesh(obj.data)
         unwrap_all(context, obj)
         bpy.ops.ed.undo_push(message="uvExtrude")
@@ -291,14 +302,93 @@ class LIVINGLACQUER_OT_UVExtrude(bpy.types.Operator):
         return {'FINISHED'}
 
 
-_CLASSES = (LIVINGLACQUER_OT_CloseHole, LIVINGLACQUER_OT_UVExtrude)
+class LIVINGLACQUER_OT_MarkSeam(bpy.types.Operator):
+    """Mark the border of the selected faces as a seam: a ring that the next Extrude or Inset cuts along"""
+    bl_idname = "livinglacquer.mark_seam"
+    bl_label = "Mark Seam"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return _poll_faces(cls, context)
+
+    def execute(self, context):
+        obj = context.edit_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        for e in rim([f for f in bm.faces if f.select]):
+            e.seam = True
+        bmesh.update_edit_mesh(obj.data)
+        return {'FINISHED'}
+
+
+def _context_menu(self, context):
+    if context.tool_settings.mesh_select_mode[2]:
+        self.layout.operator(LIVINGLACQUER_OT_MarkSeam.bl_idname)
+        self.layout.separator()
+
+
+class LIVINGLACQUER_OT_CleanFloating(bpy.types.Operator):
+    """Clean Floating (Ctrl+Shift+L): select a bit of the one big mesh to keep - the selection
+    grows to everything linked to it (Select Linked, Normal delimit, seams do not stop it),
+    Face then Edge select mode, the selection is inverted and every floating piece is deleted,
+    then every loose vertex and edge (the select mode comes back as it was)"""
+    bl_idname = "livinglacquer.clean_floating"
+    bl_label = "Clean Floating"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        if obj is None or obj.type != 'MESH' or context.mode != 'EDIT_MESH':
+            cls.poll_message_set("Edit Mode: select a bit of the mesh to keep")
+            return False
+        return True
+
+    def execute(self, context):
+        obj = context.active_object
+        obj.update_from_editmode()
+        if obj.data.total_vert_sel == 0:
+            self.report({'WARNING'}, "Select a bit of the mesh to keep first")
+            return {'CANCELLED'}
+        before = len(obj.data.polygons), len(obj.data.vertices)
+        mode = tuple(context.tool_settings.mesh_select_mode)
+        bpy.ops.mesh.select_linked(delimit={'NORMAL'})
+        bpy.ops.mesh.select_mode(type='FACE')
+        bpy.ops.mesh.select_mode(type='EDGE')
+        bpy.ops.mesh.select_all(action='INVERT')    # everything but the kept mesh
+        bpy.ops.mesh.delete(type='EDGE')
+        # what Edge mode can't select: vertices without an edge (and edges without a face)
+        bpy.ops.mesh.select_mode(type='VERT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.delete_loose(use_verts=True, use_edges=True, use_faces=False)
+        bpy.ops.mesh.select_all(action='DESELECT')
+        context.tool_settings.mesh_select_mode = mode   # the select mode as it was
+        obj.update_from_editmode()
+        faces = before[0] - len(obj.data.polygons)
+        verts = before[1] - len(obj.data.vertices)
+        self.report({'INFO'}, f"Clean Floating: {faces:,} faces, {verts:,} vertices deleted")
+        return {'FINISHED'}
+
+
+_CLASSES = (LIVINGLACQUER_OT_CloseHole, LIVINGLACQUER_OT_UVExtrude, LIVINGLACQUER_OT_MarkSeam,
+            LIVINGLACQUER_OT_CleanFloating)
+_keymaps = []
 
 
 def register():
     for c in _CLASSES:
         bpy.utils.register_class(c)
+    bpy.types.VIEW3D_MT_edit_mesh_context_menu.prepend(_context_menu)
+    kc = bpy.context.window_manager.keyconfigs.addon
+    if kc is not None:
+        km = kc.keymaps.new(name="Mesh", space_type="EMPTY")
+        _keymaps.append((km, km.keymap_items.new(LIVINGLACQUER_OT_CleanFloating.bl_idname, "L", "PRESS", ctrl=True, shift=True)))
 
 
 def unregister():
+    for km, kmi in _keymaps:
+        km.keymap_items.remove(kmi)
+    _keymaps.clear()
+    bpy.types.VIEW3D_MT_edit_mesh_context_menu.remove(_context_menu)
     for c in reversed(_CLASSES):
         bpy.utils.unregister_class(c)

@@ -1,6 +1,6 @@
 """Per-machine settings (Edit > Preferences > Add-ons > LivingLacquer)."""
 import bpy
-from bpy.props import StringProperty
+from bpy.props import BoolProperty, StringProperty
 
 ADDON = __package__.split(".modules.")[0]
 
@@ -24,9 +24,14 @@ class LIVINGLACQUER_AP_Prefs(bpy.types.AddonPreferences):
     metashape_exe: StringProperty(name="Metashape", subtype="FILE_PATH",
                                   default=r"C:\Program Files\Agisoft\Metashape\metashape.exe",
                                   description="Agisoft Metashape program")
+    auto_seams: BoolProperty(name="Auto Seams", default=True,
+                             description="Blender's Bevel, Extrude (E) and Inset (I) in face select finish with seams "
+                                         "that unfold cleanly. Off: Blender's own behaviour")
+    auto_uv: BoolProperty(name="Auto UV", default=False,
+                          description="With Auto Seams: unwrap uv_normal after each of them, over the UVs it had")
 
     def draw(self, context):
-        for p in ("objects_root", "work_root", "colmap_dir", "openmvs_dir", "metashape_exe"):
+        for p in ("objects_root", "work_root", "colmap_dir", "openmvs_dir", "metashape_exe", "auto_seams", "auto_uv"):
             self.layout.prop(self, p)
 
 

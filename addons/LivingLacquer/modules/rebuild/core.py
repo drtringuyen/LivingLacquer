@@ -23,6 +23,12 @@ BAKED, PAINTED, ALBEDO, NORMAL = "BAo_", "BAp_", "ALB_", "NOR_"
 KIND_PREFIX = {"BAO": BAKED, "BAP": PAINTED, "ALB": ALBEDO, "NOR": NORMAL}
 
 
+def final_mesh(rb):
+    """The rebuilt mesh step 5 works on (OBJ_<Object>), None while there is none in this view layer."""
+    ob = rb.target
+    return ob if ob is not None and ob.name in bpy.context.view_layer.objects else None
+
+
 def object_name():
     """The object folder's name (Wajima_Trap), '' outside an object folder."""
     root = state.get()["root"]
@@ -139,12 +145,12 @@ def export_collection(scene):
 
 
 def remesh(rb):
-    """Copy ORG_<Object> as REM_<Object> (same parent and place) with a Decimate modifier, set up like
+    """Copy ORG_<Object> as OBJ_<Object> (same parent and place) with a Decimate modifier, set up like
     a retopo object. A copy made before is replaced. Returns the copy, None without a scan mesh."""
     src = scan_mesh()
     if src is None:
         return None
-    name = f"REM_{object_name()}"
+    name = f"OBJ_{object_name()}"
     old = bpy.data.objects.get(name)
     if old is not None:
         me = old.data
@@ -162,9 +168,9 @@ def remesh(rb):
 
 
 def new_retopo(rb):
-    """An empty mesh RTP_<Object> on the scan (same parent and place), set up as the retopo object."""
+    """An empty mesh OBJ_<Object> on the scan (same parent and place), set up as the retopo object."""
     src = scan_mesh()
-    name = f"RTP_{object_name() or 'Object'}"
+    name = f"OBJ_{object_name() or 'Object'}"
     me = bpy.data.meshes.new(name)
     ob = bpy.data.objects.new(name, me)
     export_collection(bpy.context.scene).objects.link(ob)
@@ -205,7 +211,7 @@ def world_points(ob, indices=None):
 
 
 def base_disc(rb, selected=None, segments=32, band=0.02):
-    """A filled circle in the retopo object when it is still empty, else in a new RTP_. selected ((n, 3) world
+    """A filled circle in the retopo object when it is still empty, else in a new OBJ_. selected ((n, 3) world
     points of the vertices the user selected): the circle best fitting them, facing away from the middle of their
     mesh. None: under the scan, from the bounding box of its lowest 2% in height, facing up.
     Returns the object; None without a scan or when selected does not span a plane."""
