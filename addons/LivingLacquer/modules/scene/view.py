@@ -12,10 +12,10 @@ PIVOT_KEYS = ("ll_prev_pivot", "ll_prev_cursor", "ll_prev_active", "ll_prev_sele
 
 
 def scan_meshes():
-    """The scan meshes under the Transform empty; files built before 0.2.2 (no Transform): the OBJ_ meshes."""
+    """The scan meshes under the Transform empty; files built before 0.2.2 (no Transform): the ORG_ / OBJ_ meshes."""
     rig = bpy.data.objects.get("Transform")
     meshes = [o for o in (rig.children if rig else []) if o.type == "MESH"]
-    return meshes or [o for o in bpy.context.scene.objects if o.type == "MESH" and o.name.startswith("OBJ_")]
+    return meshes or [o for o in bpy.context.scene.objects if o.type == "MESH" and o.name.startswith(("ORG_", "OBJ_"))]
 
 
 def frame_scan():

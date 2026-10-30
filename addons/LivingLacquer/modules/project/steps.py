@@ -1,4 +1,4 @@
-"""Which of the 8 steps the open object has done, read from the files and the .blend (no stored "current
+"""Which of the 6 steps the open object has done, read from the files and the .blend (no stored "current
 step"): each step is DONE, STALE (done, but something it used changed since), TODO, or BLOCKED (an
 earlier step it needs is not done). Cached: computed after a file loads, after every job and Check, and
 on the panel's refresh button, never while drawing (the folders may stream from Google Drive)."""
@@ -13,16 +13,20 @@ from bpy.app.handlers import persistent
 from . import marker, paths, state
 
 DONE, STALE, TODO, BLOCKED = "DONE", "STALE", "TODO", "BLOCKED"
-NAMES = {1: "Object", 2: "Photos", 3: "Reconstruct", 4: "Build Scene & Cameras", 5: "Package"}
-NEEDS = {2: (1,), 3: (2,), 4: (3,), 5: (4,)}
-# the 5 steps are made of these checks (the 8 stages of docs/PLAN_scan_pipeline.md)
-STAGES = {1: (1,), 2: (2, 3), 3: (4, 5), 4: (6, 7), 5: (8,)}
+NAMES = {1: "Object", 2: "Photos", 3: "Reconstruct", 4: "Build Scene & Cameras", 5: "Mesh Rebuild",
+         6: "Package"}
+NEEDS = {2: (1,), 3: (2,), 4: (3,), 5: (4,), 6: (5,)}
+# the 6 steps are made of these checks (the 8 stages of docs/PLAN_scan_pipeline.md, then Mesh Rebuild's 9-11)
+STAGES = {1: (1,), 2: (2, 3), 3: (4, 5), 4: (6, 7), 5: (9, 10, 11), 6: (8,)}
 STAGE_NAMES = {1: "Object", 2: "Receive", 3: "Convert & Sort", 4: "Reconstruct", 5: "Check Links",
-               6: "Build Scene", 7: "Undistort & BG", 8: "Package"}
-STAGE_NEEDS = {2: (1,), 3: (2,), 4: (3,), 5: (1,), 6: (4,), 7: (6,), 8: (6,)}
+               6: "Build Scene", 7: "Undistort & BG", 8: "Package", 9: "Remesh / Retopo", 10: "Paint",
+               11: "Bake & Export"}
+STAGE_NEEDS = {2: (1,), 3: (2,), 4: (3,), 5: (1,), 6: (4,), 7: (6,), 8: (11,), 9: (6,), 10: (9,), 11: (10,)}
+# the sub-step label of each stage on its button: "2a. Receive" (a step with one stage has no letter)
+STAGE_LABELS = {1: "1", 2: "2a", 3: "2b", 4: "3a", 5: "3b", 6: "4a", 7: "4b", 9: "5a", 10: "5b", 11: "5c", 8: "6"}
 MIN_PHOTOS = 3
 
-_cache = {"blend": None, "steps": {}, "time": 0.0, "expanded": {}}
+_cache = {"blend": None, "steps": {}, "stages": {}, "time": 0.0, "expanded": {}}
 
 
 def _mtime(p):
@@ -46,7 +50,7 @@ def compute_stages(root):
     out = {}
     if not root:
         out[1] = (TODO, "save the file as an object")
-        for n in range(2, 9):
+        for n in range(2, 12):
             out[n] = (BLOCKED, "")
         return out
     found = paths.locate(root)
@@ -73,7 +77,7 @@ def compute_stages(root):
     # Build measured how well these very files line up (same dates): that beats comparing file dates
     checked = built.get("align") is not None and abs(built.get("xml", 0) - t_xml) <= 1 \
         and abs(built.get("model", 0) - t_model) <= 1
-    mesh = bpy.data.objects.get(f"OBJ_{obj}")
+    mesh = bpy.data.objects.get(paths.scan_name(obj))
     if not checked and xml and rig and mesh is not None and mesh.parent == rig and t_model + 1 < t_xml:
         try:                                          # built before Build recorded it: measure the scene now
             from ..scene.model import scene_alignment
@@ -115,7 +119,7 @@ def compute_stages(root):
         out[5] = (DONE, f"{chk.get('warnings', 0)} warning(s)")
 
     cams = [o for o in (rig.children if rig else []) if o.type == "CAMERA"]
-    mesh = bpy.data.objects.get(f"OBJ_{obj}")
+    mesh = bpy.data.objects.get(paths.scan_name(obj))
     if rig and cams and mesh and mesh.parent == rig:
         if built and (t_xml > built.get("xml", 0) + 1 or t_model > built.get("model", 0) + 1):
             out[6] = (STALE, "newer export: Build again")
@@ -173,6 +177,13 @@ def compute_stages(root):
     else:
         out[8] = (DONE, f"published {pub[:10]}")
 
+    try:                                              # 9-11: Mesh Rebuild (the rebuild module)
+        from ..rebuild import core as rebuild
+        out.update(rebuild.stages(obj))
+    except Exception:
+        for n in (9, 10, 11):
+            out[n] = (TODO, "")
+
     if out[4][0] == DONE and out[3][0] == TODO:       # photos added since the reconstruction
         out[4] = (STALE, "new photos are not in this reconstruction")
     turned = ((m.get("orientation") or {}).get("photos_turned_at") or "")
@@ -182,7 +193,7 @@ def compute_stages(root):
                 out[4] = (STALE, "photos turned since the reconstruction: reconstruct again")
         except ValueError:
             pass
-    for n in range(2, 9):                             # blocked by an earlier stage that is not done
+    for n in range(2, 12):                            # blocked by an earlier stage that is not done
         if any(out[r][0] not in (DONE, STALE) for r in STAGE_NEEDS[n]):
             # files left from an earlier run do not count before the scene is built (6, 7, 8)
             if out[n][0] != DONE or n in (6, 7, 8):
@@ -191,9 +202,10 @@ def compute_stages(root):
 
 
 def compute(root):
-    """{step 1-5: (state, note)}: a step is done when all its stages are; else it takes the state of its
+    """{step 1-6: (state, note)}: a step is done when all its stages are; else it takes the state of its
     first stage that is not done (a problem = STALE shows red), with that stage named in the note."""
     st = compute_stages(root)
+    _cache["stages"] = st
     out = {}
     for n, stages in STAGES.items():
         open_ = [k for k in stages if st[k][0] != DONE]
@@ -220,6 +232,13 @@ def refresh():
             if area.type == "VIEW_3D":
                 area.tag_redraw()
     return steps
+
+
+def stage(n):
+    """(state, note) of stage n; TODO until the first refresh for this file."""
+    if _cache["blend"] != bpy.data.filepath:
+        return TODO, ""
+    return _cache["stages"].get(n, (TODO, ""))
 
 
 def get():

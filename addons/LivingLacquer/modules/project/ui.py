@@ -10,7 +10,8 @@ import bpy
 from . import state, steps
 
 # number, module that draws the step (its ui.draw_step(number, layout, context))
-STEPS = [(1, ("project",)), (2, ("ingest",)), (3, ("engines", "linker")), (4, ("scene",)), (5, ("scene",))]
+STEPS = [(1, ("project",)), (2, ("ingest",)), (3, ("engines", "linker")), (4, ("scene",)), (5, ("rebuild",)),
+         (6, ("scene",))]
 BIG = 1.5               # height of a step's main button
 # green = done, red = a problem (alert), the current step is lit and marked with a play arrow
 ICON = {steps.DONE: "STRIP_COLOR_04", steps.STALE: "STRIP_COLOR_01", steps.TODO: "RADIOBUT_OFF",
@@ -24,12 +25,29 @@ def big_row(layout):
     return row
 
 
+def label(stage, text):
+    """A sub-step button's text: "2a. Receive" (steps.STAGE_LABELS), or "2. text" for a stage of None."""
+    return f"{steps.STAGE_LABELS[stage]}. {text}" if stage else text
+
+
+def done_mark(row, stage=None, done=None):
+    """A green check at the end of a sub-step's row once it is done (stage from steps, or done given)."""
+    if done is None:
+        done = stage is not None and steps.stage(stage)[0] == steps.DONE
+    if done:
+        sub = row.row(align=True)
+        sub.alert = False
+        sub.label(text="", icon="STRIP_COLOR_04")
+        sub.label(text="", icon="CHECKMARK")
+
+
 def draw_step(number, layout, context):
     """Step 1 - Object (this module)."""
     st = state.get()
     row = big_row(layout)
     row.operator("livinglacquer.pipe_new_object", text="1. New Object…", icon="FILE_NEW")
     row.operator("livinglacquer.pipe_open_object", text="Open Object…", icon="FILE_FOLDER")
+    done_mark(row, 1)
     if not st["root"]:
         layout.label(text="Not in an object folder: New Object saves it into one" if bpy.data.filepath
                      else "Save as an object to start", icon="ERROR")

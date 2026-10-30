@@ -13,6 +13,7 @@ ALL_MODULES = [
     {"name": "ingest", "op": "livinglacquer.toggle_ingest", "icon": "IMPORT"},
     {"name": "engines", "op": "livinglacquer.toggle_engines", "icon": "MOD_REMESH"},
     {"name": "metashape", "op": "livinglacquer.toggle_metashape", "icon": "OUTLINER_OB_CAMERA"},
+    {"name": "rebuild", "op": "livinglacquer.toggle_rebuild", "icon": "MOD_DECIM"},
 ]
 
 

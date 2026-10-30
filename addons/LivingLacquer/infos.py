@@ -170,6 +170,17 @@ class LIVINGLACQUER_OT_ToggleEngines(bpy.types.Operator):
         module_manager.toggle("engines")
         return {'FINISHED'}
 
+class LIVINGLACQUER_OT_ToggleRebuild(bpy.types.Operator):
+    """Toggle Rebuild module (step 5, Mesh Rebuild: remesh / retopo, paint from the photos) on/off"""
+    bl_idname = "livinglacquer.toggle_rebuild"
+    bl_label = "Rebuild"
+
+    def execute(self, context):
+        from . import module_manager
+        module_manager.toggle("rebuild")
+        return {'FINISHED'}
+
+
 def register():
     bpy.utils.register_class(LIVINGLACQUER_OT_Build)
     bpy.utils.register_class(LIVINGLACQUER_OT_Reload)
@@ -182,9 +193,11 @@ def register():
     bpy.utils.register_class(LIVINGLACQUER_OT_ToggleScene)
     bpy.utils.register_class(LIVINGLACQUER_OT_ToggleIngest)
     bpy.utils.register_class(LIVINGLACQUER_OT_ToggleEngines)
+    bpy.utils.register_class(LIVINGLACQUER_OT_ToggleRebuild)
 
 
 def unregister():
+    bpy.utils.unregister_class(LIVINGLACQUER_OT_ToggleRebuild)
     bpy.utils.unregister_class(LIVINGLACQUER_OT_ToggleEngines)
     bpy.utils.unregister_class(LIVINGLACQUER_OT_ToggleIngest)
     bpy.utils.unregister_class(LIVINGLACQUER_OT_ToggleScene)

@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased (2026-10-28)
+
+- **New step 5, Mesh Rebuild (module "rebuild"); Package is now step 6 and waits for it.**
+  - **5a Remesh / Retopo.**
+    - Remesh copies OBJ_<Object> as REM_<Object> with a Decimate modifier.
+    - Retopo makes an empty RTP_<Object> on the scan, or takes a picked or active mesh.
+    - New REM_ / RTP_ objects go into the EXPORT collection (made when missing), the one MultiCamProject uses.
+    - Either way the object gets uv_normal and the materials LL_<name> (BAo_ with BAp_ over it, by BAp_'s alpha) and MAT_<name> (ALB_ + NOR_), with a Paint / Final switch.
+    - **Bake BAo_ from Scan** bakes the scan's colour at the chosen resolution (1K-8K), with a Cage distance.
+  - **5b Paint from Photos into BAp_.**
+    - The chosen photo shows big, with ◀ ▶ and a star for Favorites.
+    - **Brush** uses Blender's Texture Paint with the photo as a stencil kept on the camera frame. Occlusion, backface culling and normal falloff are on.
+    - **Fill / Erase** puts the photo into BAp_, or clears it, wherever its camera sees the object: not its back, not behind other parts.
+    - Focus / Lock / Free set what loading a photo does to the view. Solo, Soft, Save BAp_ and Reset BAp_ sit below.
+    - BAp_ always has BAo_'s size.
+    - **Photo panel, Shift+Q:** a floating panel in the 3D viewport, dragged by any empty part and resized by any side or corner, marked with brackets and two-way arrows (saved with the scene). Its buttons have icons. Top: Brush / Fill / Erase. Then the Favorites (click to load, drag to order, drag to the bin to remove), with a bar along their bottom: < > step through All Photos from the active camera, Focus / Lock / Free, Solo, Soft and the bin. Below: All Photos (click to load, not sortable, drag up to pin to the Favorites).
+  - **5c Bake & Export**, as in MultiCamProject:
+    - ALB_ and NOR_ are each **Bake** (01.Bake) or **Load** (your file in 02.Overrides).
+    - The finished ALB_ goes over BAo_ or into 02.Overrides; a popup asks which.
+    - **Lock & Export FBX** writes Export/<name>.fbx and copies ALB_ / NOR_ to Export/Textures, the FBX's relative paths pointing there, as in MultiCamProject.
+  - Nothing is written over without asking.
+- **View row** on top of the panel: Overlays, Face Orientation, Wireframe + opacity, and on / off for Original Mesh, OBJECTS, EXPORT and CAMERAS.
+- **The scan is ORG_<Object> in the Original Mesh collection** (its files stay OBJ_<Object>.*); older files convert once on open.
+- **NOR_ High-pass** from ALB_ (ported from MultiCamProject), or baked from the scan. ALB_ and NOR_ have a write-current popup.
+- **Mesh Recorder** under 5a when MeshBuildTimelapse is on. Shift+Q opens the photo panel under the mouse.
+- **From Base (5a Retopo):** a filled circle: the best fit of the vertices selected in Edit Mode (the ring of a spout, even part of it), or with nothing selected the bounding box of the scan's lowest 2%, from any mode. Ready for **uvExtrude**, which now finishes with uv_normal unwrapped along its seams. **Close Hole** comes along from MultiCamProject.
+- **Seam Select (5a):** click an outline, double click closes it and adds (A) or subtracts (S) the faces the view sees; Enter marks a seam on the selection's border and keeps the tool open.
+- **Triangle Budget (5a):** split over the EXPORT collection's meshes by surface area, measured on the button.
+- **Check Textures / Fix** (5c Folders): textures outside their folder and copies in a second 01.Bake / 02.Overrides; Fix relinks them and sends the copies to the Recycle Bin.
+- **Edit ALB_** (Image Editor): Lasso, Fill, Patch, Move and Liquify in one session, switched by key, saved over ALB_. To paint on from the result, write ALB_ over BAo_ in 5c.
+- **The photo panel holds the new tools**, in foldable sections on top: View, Model, Budget, Textures, Recorder. The panel's sides show three dots where they can be dragged.
+- **Sub-step numbers on every button** (2a, 2b … 5c, 6), each with a green mark once done.
+- Tested on BatTrang Teapot at 1K, in a scratch folder:
+  - BAo_ and NOR_ baked from the scan in about 2.4 s each.
+  - Fill from IMG_3248 / IMG_3254: the projected photo matches the scan's colour on the same texels (correlation 0.81-0.84).
+  - A brush stroke through IMG_3254: correlation 0.81.
+  - ALB_ to 02.Overrides, Load, then Lock & Export FBX.
+
 ## 0.4.5 (2026-10-28)
 
 - **Portrait cameras now line up with the mesh after MultiCamProject looks through them.** Build used to measure a portrait camera's lens and shift on the photo's height (Sensor Fit Vertical). MultiCamProject sets every camera it looks through to Sensor Fit Horizontal without converting, so the frame came out 1.33x too big and the photo did not sit on the mesh (BatTrang Teapot, IMG_3248).

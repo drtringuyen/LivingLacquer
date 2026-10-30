@@ -62,6 +62,11 @@ def object_root(blend_path):
     return root if OBJ_RE.match(name) and stem == name else ""
 
 
+def scan_name(obj):
+    """The scan mesh's object in the .blend (its files stay OBJ_<Object>.*)."""
+    return f"ORG_{obj}"
+
+
 def object_name(root):
     """'01.BatTrang_Teapot' -> 'BatTrang_Teapot'."""
     m = OBJ_RE.match(os.path.basename(root))

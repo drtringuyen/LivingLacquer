@@ -304,7 +304,7 @@ def _scene_alignment(obj, xml):
         from ..scene.model import scene_alignment
     except ImportError:
         return None
-    mesh = bpy.data.objects.get(f"OBJ_{obj}")
+    mesh = bpy.data.objects.get(paths.scan_name(obj))
     return scene_alignment(mesh, xml) if mesh is not None and mesh.parent is not None else None
 
 

@@ -113,7 +113,7 @@ class LIVINGLACQUER_OT_PipeAutoLevel(bpy.types.Operator):
     def execute(self, context):
         rig = bpy.data.objects[build.TRANSFORM]
         obj = paths.object_name(state.get()["root"]) if state.get()["root"] else ""
-        mesh = bpy.data.objects.get(f"OBJ_{obj}") or next((o for o in rig.children if o.type == "MESH"), None)
+        mesh = bpy.data.objects.get(paths.scan_name(obj)) or next((o for o in rig.children if o.type == "MESH"), None)
         tilt = level.level(rig, mesh, [o for o in rig.children if o.type == "CAMERA"])
         if tilt is None:
             self.report({"ERROR"}, "Needs at least 3 cameras under the Transform empty (run Build)")

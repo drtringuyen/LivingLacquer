@@ -20,6 +20,7 @@ env/
 !*.skill
 !*.cs
 !*.bat
+!addons/LivingLacquer/icons/*.png
 
 # Always ignore build outputs and Blender temp files
 *.zip

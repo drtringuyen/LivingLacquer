@@ -1,6 +1,6 @@
 """Step 4 - Build Scene & Cameras (build, undistort + camera photos, looking through the cameras) and
-step 5 - Package."""
-from ..project.ui import big_row
+step 6 - Package."""
+from ..project.ui import big_row, done_mark, label
 from . import icons, operators, turn
 
 
@@ -8,7 +8,7 @@ def draw_step(number, layout, context):
     props = context.scene.livinglacquer_props
     if number == 4:
         row = big_row(layout)
-        row.operator("livinglacquer.pipe_build_scene", text="4. Build Scene", icon="SCENE_DATA")
+        row.operator("livinglacquer.pipe_build_scene", text=label(6, "Build Scene"), icon="SCENE_DATA")
         row.operator("livinglacquer.pipe_auto_level", text="", icon="ORIENTATION_GLOBAL")
         person = icons.person_icon()
         if person:
@@ -16,19 +16,23 @@ def draw_step(number, layout, context):
         else:
             row.prop(props, "pipe_show_human", text="", icon="USER", toggle=True)
         row.prop(props, "pipe_pivot_origin", text="", icon="PIVOT_CURSOR", toggle=True)
+        done_mark(row, 6)
         if operators.status("build"):
             layout.label(text=operators.status("build"))
 
         row = big_row(layout)
-        row.operator("livinglacquer.pipe_undistort", text="4. Undistort & Camera Photos", icon="IMAGE_BACKGROUND")
+        row.operator("livinglacquer.pipe_undistort", text=label(7, "Undistort & Camera Photos"), icon="IMAGE_BACKGROUND")
         row.operator("livinglacquer.pipe_undistort", text="", icon="FILE_REFRESH").redo_all = True
+        done_mark(row, 7)
         layout.label(text=operators.status("undistort") or "Runs by itself after Build")
         row = layout.row(align=True)
-        row.operator("livinglacquer.pipe_turn_cameras", text="Turn Camera Photos", icon="ORIENTATION_GIMBAL")
+        row.operator("livinglacquer.pipe_turn_cameras", text="4c. Turn Camera Photos (optional)", icon="ORIENTATION_GIMBAL")
         layout.label(text=turn.STATUS["text"] or "Stands them like step 2's Photos stand, no new reconstruction")
         _draw_cameras(layout, context, props)
     else:
-        big_row(layout).operator("livinglacquer.pipe_package", text="5. Package: Publish", icon="PACKAGE")
+        row = big_row(layout)
+        row.operator("livinglacquer.pipe_package", text=label(8, "Package: Publish"), icon="PACKAGE")
+        done_mark(row, 8)
         layout.label(text="into 01.CAM_Photos / 02.Geometry, paths relative")
         if operators.status("package"):
             layout.label(text=operators.status("package"))

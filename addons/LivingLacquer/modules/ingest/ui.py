@@ -2,7 +2,7 @@
 import bpy
 
 from ..project import jobs, state
-from ..project.ui import big_row
+from ..project.ui import big_row, done_mark, label
 from . import deps, masks, operators, orientation, preview, receiver
 
 
@@ -31,7 +31,9 @@ def _draw_orientation(layout):
     s = preview.STATE["settings"] or {"mode": "STORED", "chosen": False, "apply": None}
     t = preview.STATE["table"]
     box = layout.box()
-    box.label(text="Photos stand", icon="ORIENTATION_GIMBAL")
+    row = box.row()
+    row.label(text="2c. Photos stand (optional)", icon="ORIENTATION_GIMBAL")
+    done_mark(row, done=bool(s.get("apply")))
     row = box.row(align=True)
     for mode, label in MODE_LABELS:
         row.operator("livinglacquer.pipe_photo_mode", text=label, depress=s["mode"] == mode).mode = mode
@@ -77,12 +79,13 @@ def _draw_receive(layout):
     st = receiver.status()
     row = big_row(layout)
     if st["running"]:
-        row.operator("livinglacquer.pipe_receive", text="2. Stop Receiving", icon="PAUSE").action = "STOP"
+        row.operator("livinglacquer.pipe_receive", text=label(2, "Stop Receiving"), icon="PAUSE").action = "STOP"
     else:
-        row.operator("livinglacquer.pipe_receive", text="2. Start Receiving", icon="PLAY").action = "START"
+        row.operator("livinglacquer.pipe_receive", text=label(2, "Start Receiving"), icon="PLAY").action = "START"
     sub = row.row(align=True)
     sub.active_default = operators.STATUS["watch"]
     sub.operator("livinglacquer.pipe_receive", text="", icon="HIDE_OFF").action = "WATCH"
+    done_mark(row, 2)
     if st["running"]:
         img = bpy.data.images.get(operators.STATUS["qr"]) if operators.STATUS["qr"] else None
         if img and img.preview:
@@ -111,7 +114,7 @@ def _draw_masks(layout, context):
     """Optional: masks so only the object counts (flipped / moved between photo sets)."""
     props = context.scene.livinglacquer_props
     row = big_row(layout)
-    row.operator("livinglacquer.pipe_make_masks", text="2. Make Masks", icon="MOD_MASK")
+    row.operator("livinglacquer.pipe_make_masks", text="2d. Make Masks", icon="MOD_MASK")
     row.prop(props, "pipe_mask_method", text="")
     row.operator("livinglacquer.pipe_check_masks", text="", icon="HIDE_OFF")
     if props.pipe_mask_method == "AI" and deps.missing(["ort"]):
@@ -125,8 +128,9 @@ def _draw_masks(layout, context):
 def _draw_convert(layout, context):
     need = deps.missing(["PIL", "heif"])
     row = big_row(layout)
-    row.operator("livinglacquer.pipe_convert", text="2. Convert & Sort", icon="IMAGE_DATA")
+    row.operator("livinglacquer.pipe_convert", text=label(3, "Convert & Sort"), icon="IMAGE_DATA")
     if need:
         row.operator("livinglacquer.pipe_install_deps", text="Install converters", icon="IMPORT").packages = \
             ",".join(need)
+    done_mark(row, 3)
     layout.label(text=operators.STATUS["convert"] or "Runs by itself after receiving")

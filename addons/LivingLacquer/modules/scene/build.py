@@ -12,20 +12,40 @@ from ..linker.checks import index_photos, match_photo, pick_jpg
 from ..metashape.cameras import build_camera, get_collection, odd_shift_warnings, set_background
 from ..metashape.parse import parse_metashape_xml
 from ..metashape.photos import read_image_size, size_matches
-from ..project import marker, paths
+from ..project import marker, paths, state
 from ..project.jobs import ui_override as jobs_ui
 from . import level, model
 
 EXT = {"JPG": ".jpg", "PNG": ".png", "TIF": ".tif"}
 
 
-# MultiCamProject finds these by name (roles.py): OBJECTS = scan meshes, CAMERAS = cameras only
+# MultiCamProject finds these by name (roles.py): Original Mesh = the scan, CAMERAS = cameras only
+ORIGINALS = "Original Mesh"
 OBJECTS = "OBJECTS"
 CAMERAS = "CAMERAS"
 TRANSFORM = "Transform"
 TRANSFORM_COLLECTION = "TRANSFORM"
 FLIP = Matrix.Diagonal((1, -1, -1, 1))      # Metashape camera (Y down, Z forward) -> Blender camera
 TURN_RECORDS = "camera_photo_turns"         # livinglacquer.json: camera photos Turn Camera Photos turned
+
+
+def migrate_scan():
+    """A file built before ORG_: the scan OBJ_<Object> becomes ORG_<Object> in Original Mesh, once."""
+    root = state.get()["root"]
+    obj = paths.object_name(root) if root else ""
+    old = bpy.data.objects.get(f"OBJ_{obj}") if obj else None
+    if old is None or bpy.data.objects.get(paths.scan_name(obj)) is not None:
+        return None
+    old.name = paths.scan_name(obj)
+    old.data.name = old.name
+    geo = get_collection(bpy.context.scene, ORIGINALS)
+    if geo not in old.users_collection:
+        geo.objects.link(old)
+    for col in list(old.users_collection):
+        if col != geo:
+            col.objects.unlink(old)
+    print(f"[LivingLacquer] scan renamed {old.name} in {ORIGINALS}")
+    return None
 
 
 def file_turn(records, label, path):
@@ -141,10 +161,10 @@ def build_scene(root):
 
     if found["model"]:
         yield 0.1, f"importing {os.path.basename(found['model'])} (Blender pauses while it loads)"
-        geo = get_collection(scene, OBJECTS)
+        geo = get_collection(scene, ORIGINALS)
         with jobs_ui():
-            ob, n_abc = model.import_model(found["model"], f"OBJ_{obj}", geo)
-        lines.append(f"Model {os.path.basename(found['model'])} in {OBJECTS}" +
+            ob, n_abc = model.import_model(found["model"], paths.scan_name(obj), geo)
+        lines.append(f"Model {os.path.basename(found['model'])} in {ORIGINALS}" +
                      (f", {n_abc} camera(s) from the file removed (XML cameras win)" if n_abc else ""))
         parent_to(ob, rig, ob.matrix_basis)
         yield 0.4, "lining the mesh up with the cameras"
@@ -203,7 +223,7 @@ def build_scene(root):
     if level.is_fresh(rig):                     # first Build: stand it upright in the middle (once)
         yield 0.97, "levelling and centering"
         bpy.context.view_layer.update()
-        tilt = level.level(rig, bpy.data.objects.get(f"OBJ_{obj}"),
+        tilt = level.level(rig, bpy.data.objects.get(paths.scan_name(obj)),
                            [o for o in col.objects if o.type == "CAMERA" and o.parent == rig])
         if tilt is not None:
             lines.append(f"Auto Level & Center: tilted {tilt:.0f} deg upright, centered on the origin")

@@ -5,7 +5,7 @@ folders (docs/PLAN_scan_pipeline.md §2) and livinglacquer.json, and saves the c
 NN.<Object>.blend. Open Object opens the .blend of an object folder. Steps 2-8 stay greyed out
 until the file is saved inside an object folder.
 """
-from . import jobs, operators, prefs, state, steps, ui
+from . import jobs, operators, prefs, state, steps, ui, viewbar
 
 
 def register():
@@ -14,11 +14,13 @@ def register():
     jobs.register()
     steps.register()
     operators.register()
+    viewbar.register()
     ui.register()
 
 
 def unregister():
     ui.unregister()
+    viewbar.unregister()
     operators.unregister()
     steps.unregister()
     jobs.unregister()

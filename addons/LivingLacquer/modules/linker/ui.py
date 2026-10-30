@@ -1,7 +1,7 @@
 """Step 3 - Reconstruct, second part: Check Links and its report."""
 import bpy
 
-from ..project.ui import big_row
+from ..project.ui import big_row, done_mark, label
 from . import checks, operators
 
 ICONS = {checks.OK: "CHECKMARK", checks.INFO: "INFO", checks.WARN: "ERROR", checks.ERROR: "CANCEL"}
@@ -15,7 +15,7 @@ def draw_step(number, layout, context):
     rep = operators.REPORT
     current = rep["blend"] == bpy.data.filepath and rep["items"]
     row = big_row(layout)
-    row.operator("livinglacquer.pipe_check_links", text="3. Check Links", icon="VIEWZOOM")
+    row.operator("livinglacquer.pipe_check_links", text=label(5, "Check Links"), icon="VIEWZOOM")
     if current:
         ok, warn, err = operators.counts()
         row.label(text=str(ok), icon="CHECKMARK")
@@ -24,6 +24,7 @@ def draw_step(number, layout, context):
     sub = row.row(align=True)
     sub.enabled = bool(current) and operators.has_fixes()
     sub.operator("livinglacquer.pipe_fix_links", text="Fix…", icon="TOOL_SETTINGS")
+    done_mark(row, 5)
     if not current:
         return
     layout.prop(props, "pipe_show_report", icon="TRIA_DOWN" if props.pipe_show_report else "TRIA_RIGHT",
