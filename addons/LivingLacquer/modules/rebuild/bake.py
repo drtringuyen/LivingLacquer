@@ -5,8 +5,9 @@ photo into BAp_, combine ALB_, the Bake | Load switch and where a finished ALB_ 
 Fill / Erase: the photo is projected onto the rebuilt object through its camera (a UV Project modifier
 on a temporary UV map) and baked into uv_normal. Where the camera sees the surface is a second bake: a
 point light at the camera, so faces turned away or hidden behind other parts stay dark (as the brush,
-which paints only what the view sees)."""
+which paints only what the view sees). What it lights turns MSKp_ white there, so BAp_ shows."""
 import os
+import shutil
 from contextlib import contextmanager
 
 import bpy
@@ -33,15 +34,68 @@ def new_image(name, size, non_color=False, alpha=False):
     return img
 
 
+def _write_rgba(img, path):
+    """img's pixels as an RGBA PNG: an image loaded from an RGB file saves without its alpha, whatever it holds."""
+    w, h = img.size
+    tmp = bpy.data.images.new(img.name + "_LL_TMP", w, h, alpha=True)
+    try:
+        buf = np.empty(w * h * 4, np.float32)
+        img.pixels.foreach_get(buf)
+        tmp.pixels.foreach_set(buf)
+        tmp.filepath_raw = path
+        tmp.file_format = "PNG"
+        tmp.save(filepath=path)
+    finally:
+        bpy.data.images.remove(tmp)
+
+
 def save(img, path):
-    """Write img to path as PNG and keep it pointing there (relative when the .blend is saved)."""
+    """Write img to path as PNG and keep it pointing there (relative when the .blend is saved). BAp_ keeps its alpha."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    img.filepath_raw = path
-    img.file_format = "PNG"
-    img.save()
+    if img.name.startswith(core.PAINTED):
+        _write_rgba(img, path)
+    else:
+        img.filepath_raw = path
+        img.file_format = "PNG"
+        img.save()
     img.source = "FILE"
     img.filepath = core.rel(path)
     img.reload()
+
+
+def _painted(a):
+    """How many pixels of an RGBA array carry paint."""
+    return int((a[..., 3] > 0.01).sum())
+
+
+def _painted_on_disk(path):
+    """How many pixels of the PNG at path carry paint: its file, read apart from any image in the scene."""
+    probe = bpy.data.images.load(path, check_existing=False)
+    try:
+        return _painted(pixels(probe))
+    finally:
+        bpy.data.images.remove(probe)
+
+
+def save_painted(img, path):
+    """Save BAp_ so that paint cannot go missing: never an empty image over a file with paint in it, the file it
+    replaces kept as <path>.bak, and the file read back afterwards; paint gone from it or from the image is put back
+    and written again. Returns True when that was needed. Raises RuntimeError when the paint is not safely on disk."""
+    before = pixels(img).copy()
+    painted = _painted(before)
+    if os.path.isfile(path):
+        if not painted and _painted_on_disk(path):
+            raise RuntimeError(f"BAp_ is empty but {os.path.basename(path)} has paint: the file was not touched")
+        shutil.copy2(path, path + ".bak")
+    save(img, path)
+    margin = max(1, painted // 1000)        # the PNG's rounding at the alpha's edge
+    if abs(_painted(pixels(img)) - painted) <= margin and abs(_painted_on_disk(path) - painted) <= margin:
+        return False
+    set_pixels(img, before)
+    img.save()
+    if abs(_painted(pixels(img)) - painted) > margin or abs(_painted_on_disk(path) - painted) > margin:
+        raise RuntimeError(f"{os.path.basename(path)} did not keep the paint: the previous file is {os.path.basename(path)}.bak")
+    return True
 
 
 def load(name, path, non_color=False):
@@ -72,49 +126,111 @@ def set_pixels(img, a):
 
 # ---------------------------------------------------------------- baking
 
+def _layer_chain(lc, col):
+    """The layer collections from lc down to the one of col, [] when it is not under lc."""
+    if lc.collection == col:
+        return [lc]
+    for child in lc.children:
+        chain = _layer_chain(child, col)
+        if chain:
+            return [lc, *chain]
+    return []
+
+
+def _show_for_bake(context, objects):
+    """objects in the view layer, in the render and in every Local View, whatever hid them (Solo, the
+    outliner, an unticked collection). Returns what to put back: (collection, attr, value), (owner, attr,
+    value) and (object, space)."""
+    in_layer, flags, local = [], [], []
+    root = context.view_layer.layer_collection
+    for o in objects:
+        for col in o.users_collection:
+            for lc in _layer_chain(root, col):
+                for attr in ("exclude", "hide_viewport"):
+                    if getattr(lc, attr):
+                        in_layer.append((lc.collection, attr, True))
+                        setattr(lc, attr, False)
+                for attr in ("hide_viewport", "hide_render"):
+                    if getattr(lc.collection, attr):
+                        flags.append((lc.collection, attr, True))
+                        setattr(lc.collection, attr, False)
+        for attr in ("hide_viewport", "hide_render"):
+            if getattr(o, attr):
+                flags.append((o, attr, True))
+                setattr(o, attr, False)
+    context.view_layer.update()
+    for win in context.window_manager.windows:
+        for area in win.screen.areas:
+            space = area.spaces.active if area.type == "VIEW_3D" else None
+            if space is not None and space.local_view is not None:
+                for o in objects:
+                    if not o.local_view_get(space):
+                        o.local_view_set(space, True)
+                        local.append((o, space))
+    return in_layer, flags, local
+
+
+def is_gn(m):
+    """A GN- modifier: Mesh Build's playback and the like, which show something else than the mesh."""
+    return m.type == "NODES" and (m.name.startswith("GN-") or (m.node_group and m.node_group.name.startswith("GN-")))
+
+
+def _gn_off(objects):
+    """The GN- modifiers of objects off (Mesh Build's playback shows an older stage): what is baked is the
+    mesh itself, on its uv_normal. Returns what to put back: (modifier, attr, value)."""
+    done = []
+    for o in objects:
+        for m in o.modifiers:
+            if is_gn(m):
+                for attr in ("show_viewport", "show_render"):
+                    if getattr(m, attr):
+                        done.append((m, attr, True))
+                        setattr(m, attr, False)
+    return done
+
+
 @contextmanager
 def _bake_setup(context, target, sources=(), hide_others=False, keep_lit=()):
-    """Cycles, object mode, only target (+ sources) selected with target active; afterwards everything
-    as it was. hide_others: every other object out of the render but keep_lit, and no world (the
-    visibility bake)."""
+    """Cycles, object mode, only target (+ sources) selected with target active, shown whatever hid them and
+    without their GN- modifiers; afterwards everything as it was. hide_others: every other object out of the
+    render but keep_lit, and no world (the visibility bake)."""
     scene = context.scene
     keep = {"engine": scene.render.engine, "samples": scene.cycles.samples,
             "world": scene.world, "mode": target.mode,
             "active": context.view_layer.objects.active,
             "selected": list(context.selected_objects)}
-    hidden = []
-    if target.mode != "OBJECT":
-        bpy.ops.object.mode_set(mode="OBJECT")
-    scene.render.engine = "CYCLES"
-    scene.cycles.samples = 4
-    for o in context.view_layer.objects:
-        o.select_set(False)
-    unhid, rendered = [], []
-    for o in (target, *sources):
-        if o.hide_get():
-            o.hide_set(False)
-            unhid.append(o)
-        if o.hide_render:
-            o.hide_render = False
-            rendered.append(o)
-        o.select_set(True)
-    context.view_layer.objects.active = target
-    if hide_others:
-        scene.world = None
-        for o in scene.objects:
-            if o != target and o not in keep_lit and not o.hide_render \
-                    and o.type in {"MESH", "CURVE", "SURFACE", "META", "FONT", "LIGHT", "VOLUME"}:
-                o.hide_render = True
-                hidden.append(o)
+    hidden, unhid = [], []
+    in_layer, flags, local, gn = [], [], [], []
     try:
+        if target.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        scene.render.engine = "CYCLES"
+        scene.cycles.samples = 4
+        objects = (target, *sources)
+        in_layer, flags, local = _show_for_bake(context, objects)
+        gn = _gn_off(objects)
+        for o in context.view_layer.objects:
+            o.select_set(False)
+        for o in objects:
+            if o.hide_get():
+                o.hide_set(False)
+                unhid.append(o)
+            o.select_set(True)
+        context.view_layer.objects.active = target
+        if hide_others:
+            scene.world = None
+            for o in scene.objects:
+                if o != target and o not in keep_lit and not o.hide_render \
+                        and o.type in {"MESH", "CURVE", "SURFACE", "META", "FONT", "LIGHT", "VOLUME"}:
+                    o.hide_render = True
+                    hidden.append(o)
+        context.view_layer.update()
         yield
     finally:
         for o in hidden:
             o.hide_render = False
-        for o in rendered:
-            o.hide_render = True
-        for o in unhid:
-            o.hide_set(True)
+        for m, attr, value in gn:
+            setattr(m, attr, value)
         scene.render.engine = keep["engine"]
         scene.cycles.samples = keep["samples"]
         scene.world = keep["world"]
@@ -123,6 +239,17 @@ def _bake_setup(context, target, sources=(), hide_others=False, keep_lit=()):
         context.view_layer.objects.active = keep["active"]
         if keep["mode"] != "OBJECT" and keep["active"] == target:
             bpy.ops.object.mode_set(mode=keep["mode"])
+        for o, space in local:
+            o.local_view_set(space, False)
+        for o in unhid:
+            o.hide_set(True)
+        for owner, attr, value in flags:
+            setattr(owner, attr, value)
+        root = context.view_layer.layer_collection
+        for col, attr, value in reversed(in_layer):
+            chain = _layer_chain(root, col)
+            if chain:
+                setattr(chain[-1], attr, value)
 
 
 @contextmanager
@@ -146,6 +273,11 @@ def _bake_node(target, img):
             nt.nodes.remove(n)
 
 
+def _cage_extrusion(rb, ob):
+    """rb.cage is a distance in the world; Blender reads cage_extrusion in the object's own units."""
+    return rb.cage / max(max(abs(v) for v in ob.matrix_world.to_scale()), 1e-6)
+
+
 def bake_from_scan(context, rb, kind):
     """BAo_ (the scan's colour) or NOR_ (its surface detail as a tangent normal map) baked from
     ORG_<Object> onto the rebuilt object's uv_normal, at the set resolution, into the bake folder.
@@ -156,7 +288,7 @@ def bake_from_scan(context, rb, kind):
     img = new_image(f"{prefix}{ob.name}", size, non_color=kind == "NOR")
     core.ensure_uv(ob)
     with _bake_setup(context, ob, (src,)), _bake_node(ob, img):
-        kw = dict(use_selected_to_active=True, cage_extrusion=rb.cage, max_ray_distance=0.0, margin=MARGIN,
+        kw = dict(use_selected_to_active=True, cage_extrusion=_cage_extrusion(rb, ob), max_ray_distance=0.0, margin=MARGIN,
                   target="IMAGE_TEXTURES", use_clear=True)
         if kind == "BAO":
             bpy.ops.object.bake(type="DIFFUSE", pass_filter={"COLOR"}, **kw)
@@ -184,6 +316,35 @@ def ensure_painted(rb, ob):
     save(img, core.bake_path(rb, core.PAINTED, ob))
     core.link_images(ob)
     return img
+
+
+def ensure_mask(rb, ob):
+    """MSKp_<name>, 1K, black (all of it BAo_), written to the bake folder when new."""
+    img = core.image(core.MASK, ob)
+    if img is not None and core.has_file(img):
+        return img
+    img = new_image(f"{core.MASK}{ob.name}", core.MASK_SIZE, non_color=True)
+    px = np.zeros((core.MASK_SIZE, core.MASK_SIZE, 4), np.float32)
+    px[..., 3] = 1.0
+    set_pixels(img, px)
+    save(img, core.bake_path(rb, core.MASK, ob))
+    core.link_images(ob)
+    return img
+
+
+def grid(size, n=core.MASK_SIZE):
+    """The rows / columns of a (size, size) image that lie under an (n, n) one's pixels."""
+    return ((np.arange(n) + 0.5) * size / n).astype(np.int32)
+
+
+def clear_mask(rb, ob):
+    """All of MSKp_ black, all of the object BAo_. Only the 1K mask is written."""
+    msk = ensure_mask(rb, ob)
+    n = msk.size[0]
+    px = np.zeros((n, n, 4), np.float32)
+    px[..., 3] = 1.0
+    set_pixels(msk, px)
+    return msk
 
 
 def _smooth(x, lo, hi):
@@ -253,13 +414,14 @@ def _materials(ob, mat):
         bpy.data.materials.remove(mat)
 
 
-def flood(context, rb, erase=False):
-    """Fill: the current photo into BAp_ wherever its camera sees the rebuilt object; Erase: BAp_
-    cleared there (BAo_ shows again). Soft blends the edge over the grazing / hidden parts."""
+def flood(context, rb):
+    """Fill: the current photo into BAp_ wherever its camera sees the rebuilt object, MSKp_ white there. Soft blends
+    the edge over the grazing / hidden parts."""
     ob = rb.target
     cam = core.cameras().get(rb.photo)
     photo = core.photo_image(cam)
     bap = ensure_painted(rb, ob)
+    msk = ensure_mask(rb, ob)
     size = bap.size[0]
     col_img = new_image("LL_tmp_colour", size)
     vis_img = new_image("LL_tmp_visible", size, non_color=True)
@@ -275,9 +437,8 @@ def flood(context, rb, erase=False):
         with _projected(ob, cam, photo):
             with _bake_setup(context, ob, hide_others=True, keep_lit=(light,)):
                 kw = dict(margin=MARGIN, target="IMAGE_TEXTURES", use_clear=True)
-                if not erase:
-                    with _materials(ob, _projector_material(photo, False)), _bake_node(ob, col_img):
-                        bpy.ops.object.bake(type="EMIT", **kw)
+                with _materials(ob, _projector_material(photo, False)), _bake_node(ob, col_img):
+                    bpy.ops.object.bake(type="EMIT", **kw)
                 with _materials(ob, _projector_material(photo, True)), _bake_node(ob, vis_img):
                     bpy.ops.object.bake(type="DIFFUSE", pass_filter={"DIRECT", "COLOR"}, **kw)
         vis = pixels(vis_img)[..., 0]
@@ -287,15 +448,16 @@ def flood(context, rb, erase=False):
         m = _smooth(v, 0.05, 0.35) if rb.soft else (v > 0.15).astype(np.float32)
         cur = pixels(bap)
         a = cur[..., 3]
-        if erase:
-            cur[..., 3] = a * (1.0 - m)
-        else:
-            src = pixels(col_img)[..., :3]
-            na = m + a * (1.0 - m)
-            rgb = (src * m[..., None] + cur[..., :3] * (a * (1.0 - m))[..., None]) / np.maximum(na, 1e-6)[..., None]
-            cur[..., :3] = np.where(na[..., None] > 1e-6, rgb, cur[..., :3])
-            cur[..., 3] = na
+        rows = grid(size, msk.size[0])
+        mp = pixels(msk)
+        mp[..., :3] += (1.0 - mp[..., :3]) * m[np.ix_(rows, rows)][..., None]
+        src = pixels(col_img)[..., :3]
+        na = m + a * (1.0 - m)
+        rgb = (src * m[..., None] + cur[..., :3] * (a * (1.0 - m))[..., None]) / np.maximum(na, 1e-6)[..., None]
+        cur[..., :3] = np.where(na[..., None] > 1e-6, rgb, cur[..., :3])
+        cur[..., 3] = na
         set_pixels(bap, cur)
+        set_pixels(msk, mp)
     finally:
         bpy.data.objects.remove(light)
         bpy.data.lights.remove(light_data)
@@ -305,17 +467,24 @@ def flood(context, rb, erase=False):
 
 
 def combine_albedo(rb):
-    """ALB_ = BAo_ with BAp_ over it (BAp_'s alpha), into the bake folder. BAo_ and BAp_ are the same
-    size (BAp_ follows BAo_)."""
+    """ALB_ = what LL_ shows (BAo_, BAp_ and MSKp_ mixed by the shader) baked unlit at BAo_'s size, into the
+    bake folder. Shading stays as it was."""
     ob = rb.target
-    bao, bap = core.image(core.BAKED, ob), ensure_painted(rb, ob)
-    base, top = pixels(bao), pixels(bap)
-    a = top[..., 3:4]
-    out = base.copy()
-    out[..., :3] = base[..., :3] * (1.0 - a) + top[..., :3] * a
-    out[..., 3] = 1.0
+    bao = core.image(core.BAKED, ob)
+    ensure_painted(rb, ob)
+    ensure_mask(rb, ob)
     img = new_image(f"{core.ALBEDO}{ob.name}", bao.size[0])
-    set_pixels(img, out)
+    context = bpy.context
+    mat = core.paint_material(ob)
+    core.set_shading(ob, "PAINT")
+    core.set_flat(mat, True)
+    try:
+        with _bake_setup(context, ob), _bake_node(ob, img):
+            bpy.ops.object.bake(type="EMIT", margin=MARGIN, target="IMAGE_TEXTURES", use_clear=True)
+    finally:
+        core.set_shading(ob, rb.shading)
+        if rb.shading != "PAINT":
+            core.set_flat(mat, False)
     save(img, core.bake_path(rb, core.ALBEDO, ob))
     core.link_images(ob)
     return img

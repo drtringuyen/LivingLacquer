@@ -174,4 +174,6 @@ def set_view_camera(context, ob):
         sc.render.resolution_x, sc.render.resolution_y = int(res[0]), int(res[1])
     for area in context.screen.areas if context.screen else []:
         if area.type == "VIEW_3D":
-            area.spaces.active.region_3d.view_perspective = "CAMERA"
+            space = area.spaces.active
+            space.camera = ob       # Local View keeps its own camera: it does not follow the scene's
+            space.region_3d.view_perspective = "CAMERA"

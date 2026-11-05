@@ -2,6 +2,7 @@
 draggable picture, so it draws itself (gpu) and handles the mouse:
 
     > View  > Model  > Budget  > Textures  > Recorder     foldable sections, on top
+                                                (under Model while a uvTube is open: its values, Confirm, Cancel)
     [ Brush ] [ Fill ] [ Erase ]                the paint tools (BAp_ over BAo_)
     Favorites                                   click: load. Drag: order. Drag to the bin: out of them
     [<] Focus Lock Free  Solo Soft  name [>] [bin]   < > step through All Photos from the active camera
@@ -17,7 +18,7 @@ import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
 
-from . import budget, check, core, paint, panel_icons, poly_cut, thumbs
+from . import budget, check, core, paint, panel_icons, poly_cut, thumbs, uv_tube
 from ..project import prefs, viewbar
 
 WIDTH, HEIGHT = 430, 520    # the default size at UI scale 1
@@ -46,16 +47,22 @@ HINT = (0.62, 0.62, 0.62, 0.9)
 HINT_CORNER = 14            # the corner brackets' arms
 SECTION_H, SECTION_ROW, LINE_H = 20, 24, 16
 SECTIONS = ("View", "Model", "Budget", "Textures", "Recorder")      # rb.panel_open's order
+TUBE = "uvTube"                                                     # only while one is open, never folded
 OPS = {"base": ("livinglacquer", "rebuild_base_disc"), "extrude": ("livinglacquer", "uv_extrude"),
        "tube": ("livinglacquer", "uv_tube"), "poly": ("livinglacquer", "poly_cut_tool"),
+       "realign": ("livinglacquer", "realign_camera"),
        "measure": ("livinglacquer", "rebuild_budget"), "check": ("livinglacquer", "rebuild_check_textures"),
        "fix": ("livinglacquer", "rebuild_fix_textures"), "edit_alb": ("livinglacquer", "alb_edit"),
        "rec_start": ("meshbuildtimelapse", "start"), "rec_pause": ("meshbuildtimelapse", "pause_resume"),
        "rec_capture": ("meshbuildtimelapse", "capture"), "rec_build": ("meshbuildtimelapse", "build_stages"),
        "rec_clear": ("meshbuildtimelapse", "clear_record")}
-SLIDERS = {"wire_opacity", "budget"}
+TUBE_SLIDERS = {"tube:Sides", "tube:Segments", "tube:Radius", "tube:Seam"}
+TUBE_SWITCHES = {"tube:Smooth", "tube:Adaptive", "tube:Caps"}
+SLIDERS = {"wire_opacity", "budget", "cage"} | TUBE_SLIDERS
 COLLECTION_LABELS = {"Original Mesh": "Scan", "OBJECTS": "Objects", "EXPORT": "Export", "CAMERAS": "Cameras"}
 ICON_PX = 16
+STAMP_ALPHA = 0.55          # Free's photo over the view
+STAMP_HINT = "Free: orbit under the photo  ·  Right-drag: move  ·  Shift: size  ·  Ctrl: turn"
 
 DRAG = {"kind": "", "id": "", "x": 0, "y": 0, "moved": False, "over": None}
 _pos = [None, None]         # the panel's left and top, in region pixels
@@ -64,6 +71,7 @@ _batches = {}               # (shader, x0, y0, x1, y1) -> batch
 _scroll = {"fav": 0, "all": 0}
 _seen = {"photo": ""}       # the photo the All Photos grid last scrolled to
 _handler = None
+_stamp_handler = None
 _keymaps = []
 _waiting = {"on": False}
 
@@ -111,11 +119,17 @@ def _recorder_rows(context):
 
 def _section_body(context, rb, name):
     """(rows of (action, label), text lines (text, red)) for an open section."""
+    if name == TUBE:
+        return [[("tube:Sides", ""), ("tube:Segments", ""), ("tube:Radius", "")],
+                [("tube:Smooth", "Smooth"), ("tube:Adaptive", "Adaptive"), ("tube:Caps", "Caps"), ("tube_bezier", "Bezier")],
+                [("tube_move", "Move"), ("tube_shape", "Shape"), ("tube:Seam", ""), ("tube_pick", "Pick Seam")],
+                [("tube_confirm", "Confirm"), ("tube_cancel", "Cancel")]], \
+            [(f"Drag a value  ·  red: the seam  ·  {uv_tube.faces_count(uv_tube.open_tube(context))} faces", False)]
     if name == "View":
         return ([[("ov_overlays", "Overlays"), ("ov_faces", "Faces"), ("ov_wire", "Wire"), ("wire_opacity", "")],
                  [("col:" + c, COLLECTION_LABELS[c]) for c, _i in viewbar.COLLECTIONS]], [])
     if name == "Model":
-        return [[("mesh:ORG", "ORG_"), ("mesh:FINAL", "OBJ_")],
+        return [[("mesh:ORG", "ORG_"), ("mesh:FINAL", "OBJ_"), ("realign", "Realign")],
                 [("base", "From Base"), ("tube", "uvTube"), ("extrude", "uvExtrude"), ("poly", "Poly Cut")],
                 [("pref:auto_seams", "Auto Seams"), ("pref:auto_uv", "Auto UV")]], []
     if name == "Budget":
@@ -129,7 +143,7 @@ def _section_body(context, rb, name):
                               r["total_tris"] > rb.tri_budget)]
     if name == "Textures":
         r = check.REPORT
-        rows = [[("check", "Check"), ("fix", "Fix"), ("edit_alb", "Edit ALB_")]]
+        rows = [[("check", "Check"), ("fix", "Fix"), ("edit_alb", "Edit ALB_"), ("cage", "")]]
         if r["blend"] != bpy.data.filepath:
             return rows, []
         text = [(f"{n} goes to {os.path.basename(os.path.dirname(w))}", True) for n, _s, w in r["moves"][:3]]
@@ -141,7 +155,14 @@ def _section_body(context, rb, name):
 
 
 def _visible_sections(context):
-    return [n for n in SECTIONS if n != "Recorder" or _recorder_rows(context)[0] is not None]
+    names = [n for n in SECTIONS if n != "Recorder" or _recorder_rows(context)[0] is not None]
+    if uv_tube.open_tube(context) is not None:
+        names.insert(names.index("Model") + 1, TUBE)
+    return names
+
+
+def _section_open(rb, name):
+    return name == TUBE or rb.panel_open[SECTIONS.index(name)]
 
 
 def sections_height(context):
@@ -152,7 +173,7 @@ def sections_height(context):
     h = 0
     for name in _visible_sections(context):
         h += int(SECTION_H * ui)
-        if rb.panel_open[SECTIONS.index(name)]:
+        if _section_open(rb, name):
             rows, text = _section_body(context, rb, name)
             h += len(rows) * int(SECTION_ROW * ui) + len(text) * int(LINE_H * ui)
     return h + pad
@@ -165,7 +186,7 @@ def _layout_sections(context, rb, buttons, lines, x0, x1, top, ui):
         h = int(SECTION_H * ui)
         buttons.append(("sec:" + name, (x0, y - h, x1, y), name))
         y -= h
-        if not rb.panel_open[SECTIONS.index(name)]:
+        if not _section_open(rb, name):
             continue
         rows, text = _section_body(context, rb, name)
         for row in rows:
@@ -211,10 +232,10 @@ def layout(context, region):
     buttons, lines = [], []
     y1 = _layout_sections(context, rb, buttons, lines, x0 + pad, x1 - pad, top - pad, ui)
     out["lines"] = lines
-    # [Brush] [Fill] [Erase]
+    # [Brush] [Fill] [Erase] [Clear]
     y0 = y1 - tool_h
-    tw = (w - 2 * pad) // 3
-    for i, (action, text) in enumerate((("brush", "Brush"), ("fill", "Fill"), ("erase", "Erase"))):
+    tw = (w - 2 * pad) // 4
+    for i, (action, text) in enumerate((("brush", "Brush"), ("fill", "Fill"), ("erase", "Erase"), ("clear_mask", "Clear"))):
         buttons.append((action, (x0 + pad + i * tw, y0, x0 + pad + (i + 1) * tw, y1), text))
     # Favorites; along their bottom [<] Focus Lock Free Solo Soft name [>] [bin]
     y1 = y0 - pad
@@ -228,8 +249,9 @@ def layout(context, region):
     buttons.append(("next", (right - bar, by0, right, by1), ">"))
     x = x0 + 3 * pad + bar
     room = right - bar - pad - x
-    bw = min(int(52 * ui), (room - pad) // 5)
-    for action, text in (("FOCUS", "Focus"), ("LOCK", "Lock"), ("FREE", "Free"), ("solo", "Solo"), ("soft", "Soft")):
+    bw = min(int(52 * ui), (room - pad) // 7)
+    for action, text in (("FOCUS", "Focus"), ("LOCK", "Lock"), ("FREE", "Free"), ("solo", "Solo"), ("soft", "Soft"),
+                         ("flat", "Flat"), ("pin", "Pin")):
         buttons.append((action, (x, by0, x + bw, by1), text))
         x += bw + (pad if action == "FREE" else 0)
     out["name"] = (x + pad, by0, right - bar - pad, by1)
@@ -331,14 +353,70 @@ def slide(context, action, x, rect, start_x=None, start_value=None):
         ov = _overlay(context)
         if ov is not None:
             ov.wireframe_opacity = max(0.0, min(1.0, (x - rect[0]) / max(1, rect[2] - rect[0])))
+    elif action == "cage":
+        context.scene.livinglacquer_rebuild.cage = max(start_value, 0.0001) * 2 ** ((x - start_x) / 100.0)
+    elif action in TUBE_SLIDERS:
+        tube = uv_tube.open_tube(context)
+        mod = uv_tube.modifier(tube)
+        if mod is None or start_value is None:
+            return
+        name, dx = action[5:], x - start_x
+        if name == "Seam":
+            uv_tube.set_seam_side(tube, start_value + dx // 12)
+            return
+        if name == "Radius":
+            value = start_value * 2 ** (dx / 100.0)
+        else:
+            value = max(3 if name == "Sides" else 1, start_value + dx // (12 if name == "Sides" else 4))
+        if uv_tube.get_input(mod, name) != value:
+            uv_tube.set_input(mod, name, value)
+            tube.update_tag()
     elif start_value is not None:
         rb = context.scene.livinglacquer_rebuild
         rb.tri_budget = max(1000, int(round(start_value * 2 ** ((x - start_x) / 100.0) / 1000.0)) * 1000)
 
 
+def _slider_start(context, action):
+    """What a drag on the slider starts from."""
+    if action in TUBE_SLIDERS:
+        return _tube_value(context, action[5:])
+    rb = context.scene.livinglacquer_rebuild
+    return rb.cage if action == "cage" else rb.tri_budget
+
+
+def _tube_value(context, name):
+    tube = uv_tube.open_tube(context)
+    if tube is None:
+        return None
+    return uv_tube.seam_side(tube) if name == "Seam" else uv_tube.get_input(uv_tube.modifier(tube), name)
+
+
+def _press_tube(context, action):
+    tube = uv_tube.open_tube(context)
+    if tube is None:
+        return
+    if action in TUBE_SWITCHES:
+        mod = uv_tube.modifier(tube)
+        if mod is not None:
+            uv_tube.set_input(mod, action[5:], not uv_tube.get_input(mod, action[5:]))
+            tube.update_tag()
+    elif action == "tube_bezier":
+        uv_tube.set_bezier(context, tube, not uv_tube.is_bezier(tube))
+    elif action == "tube_pick":
+        bpy.ops.livinglacquer.uv_tube_seam_pick("INVOKE_DEFAULT")
+    elif action in {"tube_move", "tube_shape"}:
+        uv_tube.set_mode(context, tube, "OBJECT" if action == "tube_move" else "EDIT")
+    else:
+        bpy.ops.livinglacquer.uv_tube_finish(action="CONFIRM" if action == "tube_confirm" else "CANCEL")
+
+
 def press_button(context, action):
     rb = context.scene.livinglacquer_rebuild
-    if action.startswith("sec:"):
+    if action == "sec:" + TUBE:
+        pass
+    elif action.startswith(("tube:", "tube_")):
+        _press_tube(context, action)
+    elif action.startswith("sec:"):
         before = sections_height(context)
         i = SECTIONS.index(action[4:])
         rb.panel_open[i] = not rb.panel_open[i]
@@ -364,6 +442,11 @@ def press_button(context, action):
         rb.focus = action
     elif action == "soft":
         rb.soft = not rb.soft
+    elif action == "flat":
+        rb.flat = not rb.flat
+    elif action == "pin":
+        if bpy.ops.livinglacquer.rebuild_pin.poll():
+            bpy.ops.livinglacquer.rebuild_pin()
     elif action == "solo":
         if rb.target is not None:
             bpy.ops.livinglacquer.rebuild_solo()
@@ -372,8 +455,12 @@ def press_button(context, action):
     elif tools_ready(rb, context):
         if action == "brush":
             bpy.ops.livinglacquer.rebuild_brush()
+        elif action == "erase":
+            bpy.ops.livinglacquer.rebuild_mask_brush()
+        elif action == "clear_mask":
+            bpy.ops.livinglacquer.rebuild_clear_mask("INVOKE_DEFAULT")
         elif rb.photo in core.cameras():
-            bpy.ops.livinglacquer.rebuild_flood(erase=action == "erase")
+            bpy.ops.livinglacquer.rebuild_flood()
 
 
 # ---------------------------------------------------------------- drawing
@@ -493,7 +580,7 @@ def _draw_section_header(rb, name, rect, size, ui):
     s = int(12 * ui)
     y = int((rect[1] + rect[3] - s) / 2)
     color = (0.85, 0.85, 0.85, 1.0)
-    _icon("open" if rb.panel_open[SECTIONS.index(name)] else "next", rect[0] + int(3 * ui), y, s, color)
+    _icon("open" if _section_open(rb, name) else "next", rect[0] + int(3 * ui), y, s, color)
     _text(name, rect[0] + s + int(7 * ui), y + int(1 * ui), size, color)
 
 
@@ -506,7 +593,21 @@ def _draw_opacity(context, rect, size):
     _centred(f"{ov.wireframe_opacity:.2f}", rect, size)
 
 
+def _draw_tube_value(context, action, rect, size):
+    value = _tube_value(context, action[5:])
+    if value is not None:
+        _centred(f"{action[5:]} {value:.4f}" if action == "tube:Radius" else f"{action[5:]} {value}", rect, size)
+
+
 def _button_on(action, rb, context):
+    if action in TUBE_SWITCHES:
+        return bool(_tube_value(context, action[5:]))
+    if action == "tube_bezier":
+        return uv_tube.is_bezier(uv_tube.open_tube(context))
+    if action == "tube_move":
+        return context.mode == "OBJECT"
+    if action == "tube_shape":
+        return context.mode == "EDIT_CURVE"
     if action.startswith("mesh:"):
         return rb.edit_mesh == action[5:]
     if action.startswith("pref:"):
@@ -523,10 +624,16 @@ def _button_on(action, rb, context):
         return rb.focus == action
     if action == "soft":
         return rb.soft
+    if action == "flat":
+        return rb.flat
+    if action == "pin":
+        return paint.has_pin(core.cameras().get(rb.photo))
     if action == "solo":
         return paint.is_solo(context)
     if action == "brush":
-        return paint.painting(context)
+        return paint.painting(context) and not paint.masking(context)
+    if action == "erase":
+        return paint.masking(context)
     return False
 
 
@@ -554,6 +661,9 @@ def _draw_cells(cells, box, cams, rb, kind, ui, budget):
             _rect(x, y, x + s, y + s, (0.2, 0.2, 0.2, 1.0))
         else:
             _thumb(tex, x, y, s, 0.3 if dragged else 1.0)
+        if paint.has_pin(cams[name]):
+            m = max(4, s // 8)
+            _rect(x + s - m, y + s - m, x + s, y + s, TARGET)
         if name == rb.photo:
             _frame(x, y, x + s, y + s, CURRENT)
         if DRAG["moved"] and DRAG["over"] == (kind, name) and not dragged:
@@ -581,10 +691,13 @@ def _draw():
     _rect(*yellow, BOX)
     size = int(12 * ui)
     for action, rect, text in lay["buttons"]:
-        grey = (action in {"brush", "fill", "erase"} and not ready) or (action in {"fill", "erase"} and rb.photo not in cams)
+        grey = (action in {"brush", "fill", "erase", "clear_mask"} and not ready) \
+            or (action == "fill" and rb.photo not in cams)
         if action in OPS and not _op(action).poll():
             grey = True
         if action == "mesh:FINAL" and core.final_mesh(rb) is None:
+            grey = True
+        if action == "tube:Smooth" and uv_tube.is_bezier(uv_tube.open_tube(context)):
             grey = True
         if action.startswith("sec:"):
             _draw_section_header(rb, action[4:], rect, size, ui)
@@ -593,6 +706,12 @@ def _draw():
               BTN_OFF if grey else BTN_ON if _button_on(action, rb, context) else BTN)
         if action == "wire_opacity":
             _draw_opacity(context, rect, size)
+            continue
+        if action in TUBE_SLIDERS:
+            _draw_tube_value(context, action, rect, size)
+            continue
+        if action == "cage":
+            _centred(f"Cage {rb.cage * 1000:.1f} mm", rect, size)
             continue
         _button_content(action, rect, text, size, ui, (0.5, 0.5, 0.5, 1.0) if grey else (0.95, 0.95, 0.95, 1.0))
     for text, x, y, red in lay["lines"]:
@@ -618,7 +737,11 @@ def _draw():
     _frame(trash[0] + tw * 0.31, trash[1] + tw * 0.2, trash[2] - tw * 0.31, trash[3] - tw * 0.33, ink, max(1, int(ui * 2)))
     if DRAG["moved"] and DRAG["over"] == ("blue", "") and DRAG["kind"] == "all":
         _frame(*blue, TARGET)
-    if ready:
+    if paint.stamping(context):
+        status = STAMP_HINT
+    elif rb.focus == "FREE" and ready:
+        status = "Free: press Brush to see the photo over the view"
+    elif ready:
         status = "Click: load  ·  Drag up: pin  ·  Drag to the bin: unpin"
     elif rb.target is None:
         status = "Tools need a rebuilt object: step 5a"
@@ -635,6 +758,23 @@ def _draw():
     if missing and not _waiting["on"]:      # read the next ones on the next redraw
         _waiting["on"] = True
         bpy.app.timers.register(_later, first_interval=0.2)
+
+
+def _draw_stamp():
+    """Free's photo over the view, under the panel: Blender's own stencil overlay would draw over the panel."""
+    context = bpy.context
+    if context.region is None or not paint.stamping(context):
+        return
+    corners = paint.stencil_corners()
+    photo = bpy.data.brushes[paint.BRUSH].texture.image if corners else None
+    if photo is None or not photo.size[0]:
+        return
+    sh = gpu.shader.from_builtin("IMAGE_COLOR")
+    sh.uniform_sampler("image", gpu.texture.from_image(photo))
+    sh.uniform_float("color", (1, 1, 1, STAMP_ALPHA))
+    gpu.state.blend_set("ALPHA")
+    batch_for_shader(sh, "TRI_FAN", {"pos": corners, "texCoord": ((0, 0), (1, 0), (1, 1), (0, 1))}).draw(sh)
+    gpu.state.blend_set("NONE")
 
 
 # ---------------------------------------------------------------- the mouse and Shift+Q
@@ -686,7 +826,7 @@ class LIVINGLACQUER_OT_RebuildPanelPress(bpy.types.Operator):
             return {"PASS_THROUGH"}
         kind, name = where
         DRAG.update(kind=kind, id=name, x=mx, y=my, moved=False, over=None)
-        self._budget = context.scene.livinglacquer_rebuild.tri_budget
+        self._budget = _slider_start(context, name) if kind == "button" else None
         self._rect = None
         if kind == "button" and name in SLIDERS:
             self._rect = next(r for a, r, _t in layout(context, context.region)["buttons"] if a == name)
@@ -792,15 +932,16 @@ classes = (LIVINGLACQUER_OT_RebuildPhotoPanel, LIVINGLACQUER_OT_RebuildPanelPres
 
 
 def register():
-    global _handler
+    global _handler, _stamp_handler
     for c in classes:
         bpy.utils.register_class(c)
+    _stamp_handler = bpy.types.SpaceView3D.draw_handler_add(_draw_stamp, (), "WINDOW", "POST_PIXEL")
     _handler = bpy.types.SpaceView3D.draw_handler_add(_draw, (), "WINDOW", "POST_PIXEL")
     kc = bpy.context.window_manager.keyconfigs.addon
     if kc is None:                          # background mode
         return
     # the mode keymaps too: Texture Paint would take the press for a stroke
-    for name in ("3D View", "Image Paint", "Object Mode", "Mesh", "Sculpt", "Weight Paint", "Vertex Paint"):
+    for name in ("3D View", "Image Paint", "Object Mode", "Mesh", "Curve", "Sculpt", "Weight Paint", "Vertex Paint"):
         km = kc.keymaps.new(name=name, space_type="VIEW_3D" if name == "3D View" else "EMPTY")
         _keymaps.append((km, km.keymap_items.new(LIVINGLACQUER_OT_RebuildPanelPress.bl_idname,
                                                  "LEFTMOUSE", "PRESS", head=True)))
@@ -813,7 +954,7 @@ def register():
 
 
 def unregister():
-    global _handler
+    global _handler, _stamp_handler
     _batches.clear()
     panel_icons.clear()
     for km, kmi in _keymaps:
@@ -822,6 +963,9 @@ def unregister():
     if _handler is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_handler, "WINDOW")
         _handler = None
+    if _stamp_handler is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_stamp_handler, "WINDOW")
+        _stamp_handler = None
     if bpy.app.timers.is_registered(_later):
         bpy.app.timers.unregister(_later)
     for c in reversed(classes):

@@ -226,7 +226,7 @@ class LIVINGLACQUER_OT_AlbEdit(bpy.types.Operator):
 
     def _status(self, context):
         context.workspace.status_text_set(
-            f"Edit ALB_: {self._tool}  ·  L Lasso  F Fill  P Patch  G Move  W Liquify  [ ] size  ·  Ctrl+Z undo  "
+            f"Edit ALB_ (mouse over its Image Editor): {self._tool}  ·  L Lasso  F Fill  P Patch  G Move  W Liquify  [ ] size  ·  Ctrl+Z undo  "
             "Ctrl+S save  ·  Enter save and leave  ·  Esc leave")
 
     def _draw(self):
@@ -311,7 +311,7 @@ class LIVINGLACQUER_OT_AlbEdit(bpy.types.Operator):
                 if time.monotonic() - self._last_update > REDRAW_EVERY:
                     self._show()
                     self._last_update = time.monotonic()
-            return {"RUNNING_MODAL"}
+            return {"RUNNING_MODAL"} if over or self._last is not None or self._grab is not None else {"PASS_THROUGH"}
         if event.type == "LEFTMOUSE":
             if event.value == "RELEASE":
                 return self._release()
@@ -331,6 +331,8 @@ class LIVINGLACQUER_OT_AlbEdit(bpy.types.Operator):
                 else:
                     self._grab = p
             return {"RUNNING_MODAL"}
+        if not over:            # the session's keys are for its Image Editor: the other editors keep theirs
+            return {"PASS_THROUGH"}
         if event.value != "PRESS":
             return {"RUNNING_MODAL"}
         c = self._canvas

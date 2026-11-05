@@ -26,6 +26,15 @@ def _shading_update(self, context):
         core.set_shading(self.target, self.shading)
 
 
+def _flat_update(self, context):
+    from . import core
+    if self.target is not None:
+        for mat in core.materials_of(self.target):
+            core.set_flat(mat, self.flat)
+    from . import paint
+    paint.flat_changed(self)
+
+
 def _focus_update(self, context):
     from . import paint
     paint.lock_views(self.focus == "LOCK")
@@ -67,7 +76,7 @@ class LIVINGLACQUER_PG_Rebuild(bpy.types.PropertyGroup):
                             description="The object step 5 works on (the remeshed copy or the retopo object)")
     shading: EnumProperty(
         name="Shading",
-        items=[("PAINT", "Paint", "LL_<name>: BAo_ with BAp_ over it (BAp_'s alpha)"),
+        items=[("PAINT", "Paint", "LL_<name>: BAo_ with BAp_ over it, blended by MSKp_"),
                ("FINAL", "Final", "MAT_<name>: ALB_ and NOR_")],
         default="PAINT", update=_shading_update)
 
@@ -126,9 +135,14 @@ class LIVINGLACQUER_PG_Rebuild(bpy.types.PropertyGroup):
         name="View",
         items=[("FOCUS", "Focus", "Loading a photo looks through its camera", "VIEW_CAMERA", 0),
                ("LOCK", "Lock", "Loading a photo looks through its camera, no rotation", "LOCKED", 1),
-               ("FREE", "Free", "Loading a photo keeps the view (the photo only lines up through its "
-                                "camera)", "HIDE_OFF", 2)],
+               ("FREE", "Free", "Loading a photo keeps the view. With the Brush the photo stays on the "
+                                "screen while the view moves: place it, then stamp", "HIDE_OFF", 2)],
         default="FOCUS", update=_focus_update)
+    flat: BoolProperty(name="Flat", default=False, update=_flat_update,
+                       description="See the paint as it is: the last version of the mesh, unlit, every side alike "
+                                   "(Mesh Build's playback goes off; Preview ON or Play Build bring it back, older stages "
+                                   "may show other UVs). Export still uses the real "
+                                   "material")
     soft: BoolProperty(name="Soft", default=True, update=_soft_update,
                        description="Soft edge for the brush and for Fill / Erase")
 

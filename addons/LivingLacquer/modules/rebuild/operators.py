@@ -234,6 +234,13 @@ class LIVINGLACQUER_OT_RebuildPhoto(bpy.types.Operator):
             self.report({"WARNING"}, f"No camera {self.name}")
             return {"CANCELLED"}
         rb.photo = cam.name
+        if paint.has_pin(cam):
+            rb.focus = "FREE"           # a pinned view is a free one
+            context.scene.camera = cam
+            paint.update_brush(rb)
+            paint.load_pin(context, cam)
+            paint.fit_all()
+            return {"FINISHED"}
         if rb.focus != "FREE":
             from ..metashape.cameras import set_view_camera
             set_view_camera(context, cam)
@@ -242,6 +249,32 @@ class LIVINGLACQUER_OT_RebuildPhoto(bpy.types.Operator):
             context.scene.camera = cam
         paint.update_brush(rb)
         paint.fit_all()
+        return {"FINISHED"}
+
+
+class LIVINGLACQUER_OT_RebuildPin(bpy.types.Operator):
+    """Keep this view and the photo's place on it for this photo, for when its camera does not line up: loading the
+    photo comes back here. Pressed again without moving: the pin goes"""
+    bl_idname = "livinglacquer.rebuild_pin"
+    bl_label = "Pin View"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return _rb(context).photo in core.cameras()
+
+    def execute(self, context):
+        rb = _rb(context)
+        cam = core.cameras()[rb.photo]
+        if paint.pin_is_current(context, cam):
+            paint.unpin(cam)
+            self.report({"INFO"}, f"{cam.name}: pin removed")
+            return {"FINISHED"}
+        again = paint.has_pin(cam)
+        if not paint.pin(context, cam):
+            self.report({"WARNING"}, "Leave the camera view first: Free, orbit to the view you want, then pin")
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"{cam.name}: pin {'updated' if again else 'saved'}")
         return {"FINISHED"}
 
 
@@ -293,7 +326,7 @@ class LIVINGLACQUER_OT_RebuildBrush(bpy.types.Operator):
 
     def execute(self, context):
         rb = _rb(context)
-        if paint.painting(context):
+        if paint.painting(context) and not paint.masking(context):
             paint.stop(context)
             return {"FINISHED"}
         if rb.photo not in core.cameras():
@@ -304,19 +337,50 @@ class LIVINGLACQUER_OT_RebuildBrush(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class LIVINGLACQUER_OT_RebuildFlood(bpy.types.Operator):
-    """Fill: the photo into BAp_ wherever its camera sees the object (not its back, not behind other
-    parts). Erase: BAp_ cleared there, BAo_ shows again"""
-    bl_idname = "livinglacquer.rebuild_flood"
-    bl_label = "Flood"
-    bl_options = {"REGISTER", "UNDO"}
-    erase: BoolProperty(default=False)
+class LIVINGLACQUER_OT_RebuildMaskBrush(bpy.types.Operator):
+    """Erase: paint black on MSKp_, BAo_ shows under the strokes; again to stop painting"""
+    bl_idname = "livinglacquer.rebuild_mask_brush"
+    bl_label = "Erase"
 
     @classmethod
-    def description(cls, context, props):
-        return ("Erase: clear BAp_ wherever this photo's camera sees the object, BAo_ shows again" if props.erase
-                else "Fill: the photo into BAp_ wherever its camera sees the object (not its back, not behind "
-                     "other parts)")
+    def poll(cls, context):
+        return _target_poll(context) and len(_rb(context).target.data.polygons) > 0
+
+    def execute(self, context):
+        if paint.masking(context):
+            paint.stop(context)
+        else:
+            paint.start_mask(context, _rb(context))
+        return {"FINISHED"}
+
+
+class LIVINGLACQUER_OT_RebuildClearMask(bpy.types.Operator):
+    """Clear MSKp_: all of it black, the whole object shows BAo_"""
+    bl_idname = "livinglacquer.rebuild_clear_mask"
+    bl_label = "Clear MSKp_"
+
+    @classmethod
+    def poll(cls, context):
+        return _target_poll(context)
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event, title="Clear MSKp_?",
+                                                     message="All of it goes black: the whole object shows BAo_",
+                                                     confirm_text="Clear", icon="WARNING")
+
+    def execute(self, context):
+        rb = _rb(context)
+        bake.clear_mask(rb, rb.target)
+        paint.forget_look()
+        return {"FINISHED"}
+
+
+class LIVINGLACQUER_OT_RebuildFlood(bpy.types.Operator):
+    """Fill: the photo into BAp_ wherever its camera sees the object (not its back, not behind other
+    parts), MSKp_ white there"""
+    bl_idname = "livinglacquer.rebuild_flood"
+    bl_label = "Fill"
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
@@ -325,11 +389,12 @@ class LIVINGLACQUER_OT_RebuildFlood(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            share = bake.flood(context, _rb(context), self.erase)
+            share = bake.flood(context, _rb(context))
         except RuntimeError as e:
             self.report({"ERROR"}, str(e))
             return {"CANCELLED"}
-        self.report({"INFO"}, f"{'Erased' if self.erase else 'Filled'} {share:.0%} of BAp_")
+        paint.forget_look()
+        self.report({"INFO"}, f"Filled {share:.0%} of BAp_")
         return {"FINISHED"}
 
 
@@ -345,7 +410,16 @@ class LIVINGLACQUER_OT_RebuildSavePainted(bpy.types.Operator):
     def execute(self, context):
         rb = _rb(context)
         img = core.image(core.PAINTED, rb.target)
-        bake.save(img, core.image_file(img) or core.bake_path(rb, core.PAINTED, rb.target))
+        try:
+            again = bake.save_painted(img, core.image_file(img) or core.bake_path(rb, core.PAINTED, rb.target))
+        except RuntimeError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        if again:
+            self.report({"WARNING"}, "Saving lost the paint: it was put back and written again. Check BAp_")
+        msk = core.image(core.MASK, rb.target)
+        if msk is not None and msk.is_dirty and core.image_file(msk):
+            msk.save()
         _refresh_steps()
         return {"FINISHED"}
 
@@ -370,6 +444,13 @@ class LIVINGLACQUER_OT_RebuildResetPainted(bpy.types.Operator):
         img = core.image(core.PAINTED, _rb(context).target)
         w, h = img.size
         bake.set_pixels(img, np.zeros((h, w, 4), np.float32))
+        msk = core.image(core.MASK, _rb(context).target)
+        if msk is not None:
+            w, h = msk.size
+            clear = np.zeros((h, w, 4), np.float32)
+            clear[..., 3] = 1.0
+            bake.set_pixels(msk, clear)
+        paint.forget_look()
         return {"FINISHED"}
 
 
@@ -390,7 +471,7 @@ class LIVINGLACQUER_OT_RebuildSolo(bpy.types.Operator):
 # ---------------------------------------------------------------- 5c
 
 class LIVINGLACQUER_OT_RebuildAlbedo(bpy.types.Operator):
-    """Bake ALB_: BAo_ with BAp_ over it, one texture in the bake folder"""
+    """Bake ALB_: LL_'s mix of BAo_, BAp_ and MSKp_, one texture in the bake folder"""
     bl_idname = "livinglacquer.rebuild_albedo"
     bl_label = "Bake ALB_"
     bl_options = {"REGISTER", "UNDO"}
@@ -521,7 +602,8 @@ class LIVINGLACQUER_OT_RebuildLockExport(bpy.types.Operator):
             return {"CANCELLED"}
         rb.shading = "FINAL"
         path = self._path(context)
-        bake.export_fbx(context, ob, path)
+        with core.lit(ob):
+            bake.export_fbx(context, ob, path)
         ob[core.LOCKED_KEY] = True
         ob[core.EXPORTED_KEY] = core.rel(path)
         self.report({"INFO"}, f"{os.path.basename(path)} exported with its textures")
@@ -531,14 +613,16 @@ class LIVINGLACQUER_OT_RebuildLockExport(bpy.types.Operator):
 
 classes = (LIVINGLACQUER_OT_RebuildBaseDisc, LIVINGLACQUER_OT_RebuildBudget, LIVINGLACQUER_OT_RebuildCheckTextures,
            LIVINGLACQUER_OT_RebuildFixTextures, LIVINGLACQUER_OT_RebuildRemesh, LIVINGLACQUER_OT_RebuildRetopoNew, LIVINGLACQUER_OT_RebuildRetopoActive,
-           LIVINGLACQUER_OT_RebuildBakeScan, LIVINGLACQUER_OT_RebuildPhoto, LIVINGLACQUER_OT_RebuildPhotoStep,
-           LIVINGLACQUER_OT_RebuildFavorite, LIVINGLACQUER_OT_RebuildBrush,
+           LIVINGLACQUER_OT_RebuildBakeScan, LIVINGLACQUER_OT_RebuildPhoto, LIVINGLACQUER_OT_RebuildPin, LIVINGLACQUER_OT_RebuildPhotoStep,
+           LIVINGLACQUER_OT_RebuildFavorite, LIVINGLACQUER_OT_RebuildBrush, LIVINGLACQUER_OT_RebuildMaskBrush,
+           LIVINGLACQUER_OT_RebuildClearMask,
            LIVINGLACQUER_OT_RebuildFlood, LIVINGLACQUER_OT_RebuildSavePainted, LIVINGLACQUER_OT_RebuildResetPainted,
            LIVINGLACQUER_OT_RebuildSolo, LIVINGLACQUER_OT_RebuildAlbedo, LIVINGLACQUER_OT_RebuildHighpass, LIVINGLACQUER_OT_RebuildSend,
            LIVINGLACQUER_OT_RebuildLockExport)
 
 
 def register():
+    paint.register()
     for c in classes:
         bpy.utils.register_class(c)
 

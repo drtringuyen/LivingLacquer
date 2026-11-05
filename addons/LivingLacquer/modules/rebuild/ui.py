@@ -62,6 +62,20 @@ def _draw_rebuild(layout, rb):
         layout.label(text="Model the retopo first: it has no faces yet", icon="INFO")
 
 
+def _needs_above(layout, text):
+    """A step that cannot run yet: an arrow up to the one to do first."""
+    row = layout.row()
+    row.alert = True
+    row.label(text=text, icon="TRIA_UP")
+
+
+def _needs_5a(ob):
+    """What 5a still owes the steps below it, '' when it is done."""
+    if not len(ob.data.polygons):
+        return "Do 5a first: model the retopo, it has no faces yet"
+    return "" if core.has_file(core.image(core.BAKED, ob)) else "Do 5a first: Bake BAo_ from Scan"
+
+
 def _file_row(layout, img, what):
     """'<what>: <file> (size)' greyed, red when the file is gone; '(none yet)' without one."""
     row = layout.row()
@@ -97,18 +111,27 @@ def _draw_paint(layout, context, rb, cams):
     # [Brush] [Fill] [Erase]  ·  Focus | Lock | Free
     row = box.row(align=True)
     row.scale_y = 1.3
-    row.operator("livinglacquer.rebuild_brush", text="Brush", icon="BRUSH_DATA", depress=paint.painting(context))
-    row.operator("livinglacquer.rebuild_flood", text="Fill", icon="GP_DRAW_FILL").erase = False
-    row.operator("livinglacquer.rebuild_flood", text="Erase", icon="EVENT_TABLET_ERASER").erase = True
+    masking = paint.masking(context)
+    row.operator("livinglacquer.rebuild_brush", text="Brush", icon="BRUSH_DATA",
+                 depress=paint.painting(context) and not masking)
+    row.operator("livinglacquer.rebuild_flood", text="Fill", icon="GP_DRAW_FILL")
+    row.operator("livinglacquer.rebuild_mask_brush", text="Erase", icon="EVENT_TABLET_ERASER", depress=masking)
+    row.operator("livinglacquer.rebuild_clear_mask", text="Clear", icon="X")
     box.row(align=True).prop(rb, "focus", expand=True)
     row = box.row(align=True)
     row.operator("livinglacquer.rebuild_solo", text="Solo", icon="HIDE_OFF", depress=paint.is_solo(context))
     row.prop(rb, "soft", toggle=True, icon="SMOOTHCURVE")
+    row.prop(rb, "flat", toggle=True, icon="SHADING_TEXTURE")
     row.operator("livinglacquer.rebuild_save_painted", text="Save BAp_", icon="FILE_TICK")
     row.operator("livinglacquer.rebuild_reset_painted", text="", icon="TRASH")
+    box.operator("livinglacquer.rebuild_pin", text="Pin View for This Photo", icon="PINNED" if paint.has_pin(cam) else "UNPINNED",
+                 depress=paint.has_pin(cam))
+    row = box.row(align=True)
+    row.operator("livinglacquer.realign_camera", text="Realign Camera", icon="CON_CAMERASOLVER")
+    row.operator("livinglacquer.restore_camera", text="", icon="LOOP_BACK")
     _file_row(box, core.image(core.PAINTED, rb.target), "BAp_")
-    if rb.target is not None and core.image(core.BAKED, rb.target) is None:
-        box.label(text="No BAo_ yet: Bake BAo_ from Scan (5a) first", icon="INFO")
+    if rb.target is not None and _needs_5a(rb.target):
+        _needs_above(box, _needs_5a(rb.target))
 
 
 def _draw_photo_panel(layout, rb):
@@ -142,6 +165,8 @@ def _draw_bake(layout, rb):
     row.operator("livinglacquer.alb_edit", text="", icon="IMAGE")
     row.operator("livinglacquer.rebuild_send", text="", icon="EXPORT").kind = "ALB"
     _file_row(col, core.image(core.ALBEDO, ob), "ALB_")
+    if rb.alb_mode == "BAKE" and _needs_5a(ob):
+        _needs_above(col, _needs_5a(ob))
     _override_note(col, rb, "ALB", ob)
     col.separator()
     # NOR_: [Bake|Load] [Bake NOR_ from Scan]
@@ -165,6 +190,8 @@ def _draw_bake(layout, rb):
             row.prop(rb, "nor_radius")
             row.prop(rb, "nor_invert", text="", icon="ARROW_LEFTRIGHT")
     _file_row(col, core.image(core.NORMAL, ob), "NOR_")
+    if rb.nor_mode == "BAKE" and rb.nor_source == "HIGHPASS" and not core.has_file(core.image(core.ALBEDO, ob)):
+        _needs_above(col, _needs_5a(ob) or "Bake ALB_ above first")
     _override_note(col, rb, "NOR", ob)
     # Lock & Export
     row = big_row(box)

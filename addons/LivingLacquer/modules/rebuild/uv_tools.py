@@ -305,7 +305,7 @@ class LIVINGLACQUER_OT_UVExtrude(bpy.types.Operator):
 class LIVINGLACQUER_OT_MarkSeam(bpy.types.Operator):
     """Mark the border of the selected faces as a seam: a ring that the next Extrude or Inset cuts along"""
     bl_idname = "livinglacquer.mark_seam"
-    bl_label = "Mark Seam"
+    bl_label = "Boundary as Seam"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -321,8 +321,30 @@ class LIVINGLACQUER_OT_MarkSeam(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class LIVINGLACQUER_OT_ClearSeam(bpy.types.Operator):
+    """Clear the seams on the selected faces: their border and the edges between them"""
+    bl_idname = "livinglacquer.clear_seam"
+    bl_label = "Clear Seam"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return _poll_faces(cls, context)
+
+    def execute(self, context):
+        obj = context.edit_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        for f in bm.faces:
+            if f.select:
+                for e in f.edges:
+                    e.seam = False
+        bmesh.update_edit_mesh(obj.data)
+        return {'FINISHED'}
+
+
 def _context_menu(self, context):
-    if context.tool_settings.mesh_select_mode[2]:
+    if context.tool_settings.mesh_select_mode[2]:   # the keys while the menu is open: C and B, from the labels
+        self.layout.operator(LIVINGLACQUER_OT_ClearSeam.bl_idname)
         self.layout.operator(LIVINGLACQUER_OT_MarkSeam.bl_idname)
         self.layout.separator()
 
@@ -371,7 +393,7 @@ class LIVINGLACQUER_OT_CleanFloating(bpy.types.Operator):
 
 
 _CLASSES = (LIVINGLACQUER_OT_CloseHole, LIVINGLACQUER_OT_UVExtrude, LIVINGLACQUER_OT_MarkSeam,
-            LIVINGLACQUER_OT_CleanFloating)
+            LIVINGLACQUER_OT_ClearSeam, LIVINGLACQUER_OT_CleanFloating)
 _keymaps = []
 
 

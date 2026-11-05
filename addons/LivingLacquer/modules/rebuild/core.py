@@ -1,14 +1,18 @@
 """Step 5 - Mesh Rebuild: the rebuilt object, its materials, its texture files and the photo lists.
 
 Names, for a rebuilt object called <name> (as MultiCamProject names them):
-    LL_<name>   while painting: BAo_ (baked from the scan) with BAp_ (painted from the photos) over it,
-                mixed by BAp_'s alpha
-    MAT_<name>  final: ALB_ (BAo_ + BAp_ in one texture) and NOR_ (baked from the scan)
+    LL_<name>   while painting: BAo_ (baked from the scan) at the bottom, BAp_ (painted from the photos) on
+                top, blended by MSKp_: black = BAo_, white = BAp_
+    MAT_<name>  final: ALB_ (LL_'s mix baked into one texture) and NOR_ (baked from the scan), on the
+                object only while Shading is Final
+    MSKp_<name> 1K grey mask. Fill and the Brush paint it white, Erase paints it black, Clear makes all of it
+                black. Not MultiCamProject's MSK_: that one masks its projection
     uv_normal   the UV map all of them use (the object's own UV renamed; its layout is up to the user)
 Files: <name>.png in the bake folder (01.Bake); a finished ALB_ / NOR_ of your own in 02.Overrides is used
 with Load. Nothing is written over without asking.
 """
 import os
+from contextlib import contextmanager
 
 import bpy
 
@@ -18,9 +22,11 @@ REBUILD_KEY = "ll_rebuild"          # object key: "REMESH" / "RETOPO", the objec
 LOCKED_KEY = "ll_locked"            # object key: Lock & Export done, the textures stay as they are
 EXPORTED_KEY = "ll_exported"        # object key: the FBX Lock & Export wrote
 UV = "uv_normal"
+FLAT_OUT, FLAT_EMIT = "LL Flat Output", "LL Flat Emission"
 PAINT, FINAL = "LL_", "MAT_"
 BAKED, PAINTED, ALBEDO, NORMAL = "BAo_", "BAp_", "ALB_", "NOR_"
 KIND_PREFIX = {"BAO": BAKED, "BAP": PAINTED, "ALB": ALBEDO, "NOR": NORMAL}
+MASK, MASK_SIZE = "MSKp_", 1024
 
 
 def final_mesh(rb):
@@ -309,10 +315,24 @@ def _material(name):
     return mat
 
 
+def _wire_mask(nt, ob):
+    """LL_'s factor = MSKp_ alone. An LL_ from before this gets it too, and loses the older factor's nodes."""
+    mix = next((n for n in nt.nodes if n.type == "MIX"), None)
+    if mix is None:
+        return
+    msk = nt.nodes.get(MASK) or _tex(nt, MASK, ob, (-450, -450))
+    for n in [n for n in nt.nodes if n.bl_idname in {"ShaderNodeSeparateColor", "ShaderNodeMath"}]:
+        nt.nodes.remove(n)
+    links = mix.inputs["Factor"].links
+    if not links or links[0].from_node != msk:
+        nt.links.new(msk.outputs["Color"], mix.inputs["Factor"])
+
+
 def paint_material(ob):
-    """LL_<name>: BAo_ mixed with BAp_ by BAp_'s alpha (made once; an existing one is kept)."""
+    """LL_<name>: BAo_ below, BAp_ on top, blended by MSKp_ (made once; an existing one is kept)."""
     mat = bpy.data.materials.get(f"{PAINT}{ob.name}")
     if mat is not None:
+        _wire_mask(mat.node_tree, ob)
         return mat
     mat = _material(f"{PAINT}{ob.name}")
     nt = mat.node_tree
@@ -322,10 +342,10 @@ def paint_material(ob):
     mix = nt.nodes.new("ShaderNodeMix")
     mix.data_type = "RGBA"
     mix.location = (-150, 0)
-    nt.links.new(bap.outputs["Alpha"], mix.inputs["Factor"])
     nt.links.new(bao.outputs["Color"], mix.inputs["A"])
     nt.links.new(bap.outputs["Color"], mix.inputs["B"])
     nt.links.new(mix.outputs["Result"], bsdf.inputs["Base Color"])
+    _wire_mask(nt, ob)
     return mat
 
 
@@ -349,23 +369,98 @@ def final_material(ob):
 
 
 def link_images(ob):
-    """Point the texture nodes of LL_ / MAT_ at the current BAo_ / BAp_ / ALB_ / NOR_ images."""
+    """Point the texture nodes of LL_ / MAT_ at the current BAo_ / BAp_ / MSKp_ / ALB_ / NOR_ images."""
     for mat in (bpy.data.materials.get(f"{PAINT}{ob.name}"), bpy.data.materials.get(f"{FINAL}{ob.name}")):
         if mat is None or not mat.use_nodes:
             continue
-        for prefix in KIND_PREFIX.values():
+        for prefix in (*KIND_PREFIX.values(), MASK):
             n = mat.node_tree.nodes.get(prefix)
             if n is not None and n.type == "TEX_IMAGE":
                 n.image = image(prefix, ob)
 
 
+def _main_output(nt):
+    out = nt.nodes.get("Material Output")
+    if out is not None and out.type == "OUTPUT_MATERIAL":
+        return out
+    return next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL" and n.name != FLAT_OUT), None)
+
+
+def _flat_output(nt, out):
+    """The Emission and its output, on what the BSDF shows as Base Color (made, or relinked to it)."""
+    link = next((lk for lk in nt.links if lk.to_socket == out.inputs["Surface"]), None)
+    base = link.from_node.inputs.get("Base Color") if link is not None else None
+    if base is None:
+        return None
+    emit = nt.nodes.get(FLAT_EMIT) or nt.nodes.new("ShaderNodeEmission")
+    emit.name = emit.label = FLAT_EMIT
+    flat = nt.nodes.get(FLAT_OUT) or nt.nodes.new("ShaderNodeOutputMaterial")
+    flat.name = flat.label = FLAT_OUT
+    emit.location = (out.location.x, out.location.y + 260)
+    flat.location = (out.location.x + 220, out.location.y + 260)
+    if base.is_linked:
+        if not emit.inputs["Color"].is_linked or emit.inputs["Color"].links[0].from_socket != base.links[0].from_socket:
+            nt.links.new(base.links[0].from_socket, emit.inputs["Color"])
+    else:
+        for lk in list(emit.inputs["Color"].links):
+            nt.links.remove(lk)
+        emit.inputs["Color"].default_value = base.default_value
+    if not flat.inputs["Surface"].is_linked:
+        nt.links.new(emit.outputs["Emission"], flat.inputs["Surface"])
+    return flat
+
+
+def set_flat(mat, flat):
+    """mat shows its colour unlit, every side alike, or its BSDF: only which output is active changes."""
+    nt = mat.node_tree if mat is not None else None
+    out = _main_output(nt) if nt is not None else None
+    if out is None:
+        return
+    target = (_flat_output(nt, out) or out) if flat else out
+    if not target.is_active_output:
+        target.is_active_output = True
+
+
+def materials_of(ob):
+    return [m for m in (bpy.data.materials.get(f"{PAINT}{ob.name}"), bpy.data.materials.get(f"{FINAL}{ob.name}")) if m]
+
+
+@contextmanager
+def lit(ob):
+    """ob's LL_ / MAT_ on their BSDF for the duration: what an export reads."""
+    flat = [m for m in materials_of(ob) if (o := _main_output(m.node_tree)) is not None and not o.is_active_output]
+    for m in flat:
+        set_flat(m, False)
+    try:
+        yield
+    finally:
+        for m in flat:
+            set_flat(m, True)
+
+
 def set_shading(ob, shading):
-    """The simple switch between painting and final: every slot holds LL_<name> or MAT_<name>."""
-    mat = paint_material(ob) if shading == "PAINT" else final_material(ob)
-    if not ob.material_slots:
-        ob.data.materials.append(mat)
-    for slot in ob.material_slots:
-        slot.material = mat
+    """The simple switch between painting and final: the slots always hold LL_<name> and MAT_<name>, as
+    MultiCamProject keeps its two, and the mesh's faces use one of them."""
+    head = [paint_material(ob), final_material(ob)]
+    index = 0 if shading == "PAINT" else 1
+    mat = head[index]
+    me = ob.data
+    if ob.mode == "EDIT":
+        import bmesh
+        bm = bmesh.from_edit_mesh(me)
+        for f in bm.faces:
+            f.material_index = index
+        bmesh.update_edit_mesh(me, loop_triangles=False, destructive=False)
+    else:
+        if [s.material for s in ob.material_slots] != head:
+            me.materials.clear()
+            for m in head:
+                me.materials.append(m)
+        me.polygons.foreach_set("material_index", [index] * len(me.polygons))
+        me.update()
+    ob.active_material_index = index
+    rb = getattr(bpy.context.scene, "livinglacquer_rebuild", None)
+    set_flat(mat, rb is not None and rb.flat)
 
 
 def setup_target(ob, rb, how="RETOPO"):
