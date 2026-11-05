@@ -2,6 +2,7 @@
 
 ## Unreleased (2026-10-28)
 
+- **Open Source is the default engine.** **Install Engines (COLMAP + OpenMVS)** shows in step 3 when they are not found (and in the add-on's Preferences, where it reinstalls): it downloads the tested releases (COLMAP 4.2.1, OpenMVS 2.4.0) from their GitHub pages into the Engines Folder (default %LOCALAPPDATA%\LivingLacquer\engines) and points the COLMAP / OpenMVS folders at them. CUDA builds with an NVIDIA card, CPU builds otherwise. Nothing is downloaded before the click. The full install manual is in docs/INSTALL.md.
 - **New step 5, Mesh Rebuild (module "rebuild"); Package is now step 6 and waits for it.**
   - **5a Remesh / Retopo.**
     - Remesh copies OBJ_<Object> as REM_<Object> with a Decimate modifier.

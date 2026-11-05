@@ -89,7 +89,7 @@ class LIVINGLACQUERProperties(bpy.types.PropertyGroup):
         items=[("AGISOFT", "Agisoft", "Metashape Standard does everything, Blender prepares and collects"),
                ("HYBRID", "Hybrid", "Agisoft aligns the cameras, OpenMVS builds mesh and texture"),
                ("OPENSOURCE", "Open Source", "COLMAP + OpenMVS, fully automatic")],
-        default="AGISOFT"
+        default="OPENSOURCE"
     )
     pipe_preset: EnumProperty(
         name="Quality", description="Engine quality (Open Source / Hybrid)",

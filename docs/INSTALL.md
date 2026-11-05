@@ -21,7 +21,7 @@ Tested with: Windows 11, Blender 5.2, COLMAP 4.2.1, OpenMVS 2.4.0, NVIDIA RTX 40
 | Internet | for the downloads and Python packages | |
 
 The engines write large temporary files: about **36 MB per photo** for depth maps alone. A 100-photo
-object can use several GB in the local work folder (see [step 6](#6-tell-the-add-on-where-everything-is)).
+object can use several GB in the local work folder (see [step 7](#7-tell-the-add-on-where-everything-is)).
 
 ---
 
@@ -61,7 +61,28 @@ folder, not into your system Python.
 
 ---
 
-## 4. Install COLMAP (aligns the cameras)
+## 4. COLMAP and OpenMVS: the one-click way
+
+**Open Source** (COLMAP + OpenMVS) is the default engine. The first time you open step
+**3. Reconstruct** without them, it shows **Install Engines (COLMAP + OpenMVS)**:
+
+1. Click it and confirm **Download**.
+2. The add-on downloads the tested releases, **COLMAP 4.2.1** and **OpenMVS 2.4.0**, from their official
+   GitHub pages: the CUDA builds if you have an NVIDIA card (about 430 MB), the CPU builds otherwise (about
+   150 MB). The progress bar follows the download and the unpacking. Blender stays usable meanwhile.
+3. They go into the **Engines Folder**, `%LOCALAPPDATA%\LivingLacquer\engines` unless you pick another one
+   in **Edit > Preferences > Add-ons > LivingLacquer**. The add-on then points its COLMAP and OpenMVS
+   folders at them and saves the preferences. Done: skip to [step 8](#8-first-run).
+
+To install them again (a broken folder, or after switching graphics cards), click **Install Engines** next
+to **Engines Folder** in the add-on's preferences. Nothing is ever downloaded without that click.
+
+If the download is blocked (a company network, no internet on the scan computer), install them by hand
+with steps 5 and 6 below.
+
+---
+
+## 5. Install COLMAP by hand (aligns the cameras)
 
 COLMAP finds the photos' features, matches them and solves where every camera stood.
 
@@ -69,8 +90,8 @@ COLMAP finds the photos' features, matches them and solves where every camera st
 2. Under **Assets** download **one** of:
    - `colmap-x64-windows-cuda.zip` (about 415 MB): for an NVIDIA graphics card. Much faster.
    - `colmap-x64-windows-nocuda.zip` (about 130 MB): any other computer.
-3. Make the folder `C:\Photogrametry Tools\` (spelled exactly like this if you want to skip step 6; any
-   other folder works too).
+3. Make the folder `C:\Photogrametry Tools\` (spelled exactly like this if you want to skip step 7's
+   settings; any other folder works too).
 4. Right-click the zip, **Extract All...**, and extract it into `C:\Photogrametry Tools\`. You must end up
    with:
    ```
@@ -88,7 +109,7 @@ Use COLMAP **4.x**. The add-on passes COLMAP 4 option names, and older 3.x relea
 
 ---
 
-## 5. Install OpenMVS (builds the mesh and texture)
+## 6. Install OpenMVS by hand (builds the mesh and texture)
 
 OpenMVS turns the aligned cameras into a dense point cloud, a mesh and a texture.
 
@@ -97,7 +118,9 @@ OpenMVS turns the aligned cameras into a dense point cloud, a mesh and a texture
    - `OpenMVS_Windows_x64_CUDA.7z` (about 11 MB): for an NVIDIA graphics card.
    - `OpenMVS_Windows_x64.zip` (about 22 MB): any other computer.
 3. A `.7z` file needs **7-Zip** (<https://www.7-zip.org>) unless your Windows already opens `.7z` in
-   Explorer. Right-click it, **7-Zip > Extract to "OpenMVS_Windows_x64_CUDA\"**.
+   Explorer. Right-click it, **7-Zip > Extract to "OpenMVS_Windows_x64_CUDA\"**. The CUDA `.7z` is
+   complete on its own: it does not need the CPU zip. The CPU zip keeps its files in `vc17\x64\Release\`:
+   use that innermost folder.
 4. Put that folder in `C:\Photogrametry Tools\`. You must end up with the programs directly inside it,
    next to many `.dll` files:
    ```
@@ -110,20 +133,21 @@ OpenMVS turns the aligned cameras into a dense point cloud, a mesh and a texture
        TextureMesh.exe
        ...dll
    ```
-   With the non-CUDA zip the folder is called `OpenMVS_Windows_x64`; that is fine, just point the add-on
-   to it in step 6.
+   With the non-CUDA zip the folder is named differently; that is fine, just point the add-on to it in
+   step 7.
 
 ---
 
-## 6. Tell the add-on where everything is
+## 7. Tell the add-on where everything is
 
-If you used exactly the folders above, there is nothing to do. Otherwise:
+After **Install Engines**, or if you used exactly the folders above, there is nothing to do. Otherwise:
 
 1. Open the LivingLacquer tab (**N** in the 3D View), and in the scan pipeline panel click the
    **gear** button next to the engine switch (**Agisoft / Hybrid / Open Source**). The **Advanced** box
    opens. The same settings are in **Edit > Preferences > Add-ons > LivingLacquer**.
 2. Set:
    - **COLMAP**: the folder that holds `bin\colmap.exe` (not the `bin` folder itself).
+   - **Engines Folder**: where **Install Engines** puts them (empty = `%LOCALAPPDATA%\LivingLacquer\engines`).
    - **OpenMVS**: the folder that holds `DensifyPointCloud.exe`.
    - **Local Work Folder**: where the big temporary files go. Leave it empty for
      `%LOCALAPPDATA%\LivingLacquer`, or pick a folder on a fast local drive with plenty of space. Not a
@@ -135,7 +159,7 @@ If you used exactly the folders above, there is nothing to do. Otherwise:
 
 ---
 
-## 7. First run
+## 8. First run
 
 1. Step 1: create the object. Step 2: bring in the photos (from the iPhone or a folder) and run
    **Convert & Sort**.
@@ -151,10 +175,11 @@ step 3 opens the current one.
 
 ---
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | What you see | Why, and what to do |
 |---|---|
+| **Install Engines** fails | Its log is `install.log` in the Engines Folder. A blocked download: install by hand (steps 5 and 6). |
 | `Not found: COLMAP` | The COLMAP path is not the folder holding `bin\colmap.exe`. Often the zip was extracted one level too deep. |
 | `Not found: DensifyPointCloud, ...` | The OpenMVS path is not the folder holding the `.exe` files. |
 | A program fails with a missing `MSVCP140.dll` / `VCRUNTIME140.dll` | Install the Microsoft Visual C++ Redistributable (x64): <https://aka.ms/vs/17/release/vc_redist.x64.exe> |
@@ -167,8 +192,9 @@ step 3 opens the current one.
 
 ---
 
-## 9. Licenses
+## 10. Licenses
 
 LivingLacquer is GPL-3.0-or-later. COLMAP (BSD license, <https://colmap.github.io>) and OpenMVS
-(AGPL-3.0, <https://github.com/cdcseacave/openMVS>) are separate programs by their own authors; the
-add-on only runs them. Please cite them if you publish work made with them.
+(AGPL-3.0, <https://github.com/cdcseacave/openMVS>) are separate programs by their own authors. The
+add-on does not ship them: **Install Engines** downloads their official, unmodified releases straight from
+their authors' GitHub pages, and the add-on only runs them. Please cite them if you publish work made with them.

@@ -15,4 +15,4 @@ tags = ["3D View", "Import-Export"]
 
 [permissions]
 files = "Read photogrammetry exports and write undistorted photos next to them"
-network = "Receive photos from the iPhone on the local network; install the photo converters"
+network = "Receive photos from the iPhone on the local network; install the photo converters; download COLMAP and OpenMVS when asked"

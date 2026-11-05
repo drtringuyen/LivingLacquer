@@ -37,6 +37,11 @@ def draw_step(number, layout, context):
         _draw_guide(layout, props, engine)
     if need:
         layout.label(text="Not found: " + ", ".join(need) + " (⚙ Advanced)", icon="ERROR")
+        if any(n != "Metashape" for n in need):
+            row = layout.row()
+            row.scale_y = 1.4
+            row.operator("livinglacquer.pipe_install_engines", text="Install Engines (COLMAP + OpenMVS)",
+                         icon="IMPORT")
     line = operators.status()
     if line:
         layout.label(text=line)

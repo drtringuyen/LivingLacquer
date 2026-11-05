@@ -21,6 +21,9 @@ class LIVINGLACQUER_AP_Prefs(bpy.types.AddonPreferences):
     openmvs_dir: StringProperty(name="OpenMVS", subtype="DIR_PATH",
                                 default=r"C:\Photogrametry Tools\OpenMVS_Windows_x64_CUDA",
                                 description="OpenMVS folder (holding DensifyPointCloud.exe ...)")
+    engines_root: StringProperty(name="Engines Folder", subtype="DIR_PATH",
+                                 description="Where Install Engines puts COLMAP and OpenMVS; "
+                                             "empty = %LOCALAPPDATA%\\LivingLacquer\\engines")
     metashape_exe: StringProperty(name="Metashape", subtype="FILE_PATH",
                                   default=r"C:\Program Files\Agisoft\Metashape\metashape.exe",
                                   description="Agisoft Metashape program")
@@ -31,7 +34,12 @@ class LIVINGLACQUER_AP_Prefs(bpy.types.AddonPreferences):
                           description="With Auto Seams: unwrap uv_normal after each of them, over the UVs it had")
 
     def draw(self, context):
-        for p in ("objects_root", "work_root", "colmap_dir", "openmvs_dir", "metashape_exe", "auto_seams", "auto_uv"):
+        for p in ("objects_root", "work_root", "colmap_dir", "openmvs_dir"):
+            self.layout.prop(self, p)
+        row = self.layout.row(align=True)
+        row.prop(self, "engines_root")
+        row.operator("livinglacquer.pipe_install_engines", text="Install Engines", icon="IMPORT").reinstall = True
+        for p in ("metashape_exe", "auto_seams", "auto_uv"):
             self.layout.prop(self, p)
 
 

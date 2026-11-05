@@ -1,12 +1,13 @@
 """Step 4 - Reconstruct, for the engine chosen at the top of the panel."""
 import os
+import sys
 import time
 
 import bpy
 
 from ..project import jobs, state
 from ..scene import operators as scene_ops
-from . import agisoft, guide, pipelines, tools
+from . import agisoft, guide, install, pipelines, tools
 
 STATUS = {"text": "", "watch": None, "watch_state": {}, "blend": None, "copied": ""}
 
@@ -58,7 +59,7 @@ class LIVINGLACQUER_OT_PipeReconstruct(bpy.types.Operator):
         else:
             need = tools.missing(engine)
         if need:
-            self.report({"ERROR"}, "Not found: " + ", ".join(need) + " (set the paths in ⚙ Advanced)")
+            self.report({"ERROR"}, "Not found: " + ", ".join(need) + " (Install Engines, or set the paths in ⚙ Advanced)")
             return {"CANCELLED"}
         try:
             if engine == "OPENSOURCE" and self.action == "START":
@@ -112,6 +113,47 @@ class LIVINGLACQUER_OT_PipeCopyPath(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _installed(job):
+    if job.state == "done":
+        _set("Engines installed: " + ", ".join(f"{n} ({install.LICENSES[n].split(',')[0]})"
+                                              for n in ("COLMAP", "OpenMVS")))
+    else:
+        _set(f"Install engines: {job.error or job.state} (see Show Log)")
+
+
+class LIVINGLACQUER_OT_PipeInstallEngines(bpy.types.Operator):
+    """Download COLMAP and OpenMVS from their official GitHub releases (about 430 MB with an NVIDIA card,
+    150 MB without) into the Engines Folder and point the add-on at them. COLMAP is BSD licensed,
+    OpenMVS AGPL-3.0"""
+    bl_idname = "livinglacquer.pipe_install_engines"
+    bl_label = "Install Engines"
+    reinstall: bpy.props.BoolProperty(name="Reinstall", default=False,
+                                      description="Download both again, even when found")
+
+    @classmethod
+    def poll(cls, context):
+        return sys.platform == "win32" and not jobs.busy()
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(
+            self, event, title="Install COLMAP and OpenMVS?",
+            message=f"Downloads {' and '.join(install.needed(self.reinstall)) or 'nothing'} from GitHub into "
+                    f"{install.engines_root()}", confirm_text="Download")
+
+    def execute(self, context):
+        if not install.needed(self.reinstall):
+            self.report({"INFO"}, "COLMAP and OpenMVS are already found")
+            return {"CANCELLED"}
+        try:
+            job = install.install_job(self.reinstall, on_done=_installed)
+            _set("Installing engines…")
+            jobs.run_or_start(job)
+        except Exception as e:
+            self.report({"ERROR"}, f"Install engines: {e}")
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
 def _watch_tick():
     w = STATUS["watch"]
     if w is None:
@@ -139,7 +181,7 @@ def _watch_tick():
     return 2.0
 
 
-classes = (LIVINGLACQUER_OT_PipeReconstruct, LIVINGLACQUER_OT_PipeCopyPath)
+classes = (LIVINGLACQUER_OT_PipeReconstruct, LIVINGLACQUER_OT_PipeCopyPath, LIVINGLACQUER_OT_PipeInstallEngines)
 
 
 def register():

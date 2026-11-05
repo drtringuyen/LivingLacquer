@@ -34,7 +34,7 @@ Short version (Windows, Blender 4.2+):
 
 1. `git clone https://github.com/drtringuyen/LivingLacquer.git`, then `python zip_addon.py` builds `LivingLacquer.zip`.
 2. Blender: Edit > Preferences > Add-ons > v > **Install from Disk**, pick the zip, tick **LivingLacquer**.
-3. For the Open Source engine, extract [COLMAP](https://github.com/colmap/colmap/releases/latest) and [OpenMVS](https://github.com/cdcseacave/openMVS/releases/latest) into `C:\Photogrametry Tools\` (or set their folders in the add-on's preferences).
+3. Open Source (COLMAP + OpenMVS) is the default engine: click **Install Engines** in step 3 and the add-on downloads the tested [COLMAP](https://github.com/colmap/colmap/releases) and [OpenMVS](https://github.com/cdcseacave/openMVS/releases) releases and sets them up. Or install them by hand (see the manual).
 
 Developers: `python install.py` copies the add-on into Blender 5.2's add-ons folder and reloads it through the Blender MCP (port 9876). Change `BLENDER_VERSION` in `install.py` for another Blender.
 
