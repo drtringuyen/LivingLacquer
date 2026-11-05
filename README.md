@@ -28,10 +28,15 @@ LivingLacquer/
 
 ## Install
 
-```
-python install.py
-```
-Copies the add-on into Blender 5.2's add-ons folder and reloads it through the Blender MCP (port 9876). Enable **LivingLacquer** once in Preferences > Add-ons. Change `BLENDER_VERSION` in `install.py` for another Blender.
+**Full manual: [docs/INSTALL.md](docs/INSTALL.md)**: the add-on, its Python packages, and the free photogrammetry programs COLMAP and OpenMVS for the Open Source engine.
+
+Short version (Windows, Blender 4.2+):
+
+1. `git clone https://github.com/drtringuyen/LivingLacquer.git`, then `python zip_addon.py` builds `LivingLacquer.zip`.
+2. Blender: Edit > Preferences > Add-ons > v > **Install from Disk**, pick the zip, tick **LivingLacquer**.
+3. For the Open Source engine, extract [COLMAP](https://github.com/colmap/colmap/releases/latest) and [OpenMVS](https://github.com/cdcseacave/openMVS/releases/latest) into `C:\Photogrametry Tools\` (or set their folders in the add-on's preferences).
+
+Developers: `python install.py` copies the add-on into Blender 5.2's add-ons folder and reloads it through the Blender MCP (port 9876). Change `BLENDER_VERSION` in `install.py` for another Blender.
 
 ## Sidebar tab
 
